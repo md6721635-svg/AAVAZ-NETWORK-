@@ -41,10 +41,8 @@ button:disabled{opacity:.5}
 <h1>📢 Awaaz Network</h1>
 <p>Aapki awaaz, aapka adhikar.</p>
 </header>
-
 <main>
 <div id="message"></div>
-
 <section id="authSection" class="card">
 <h2>Welcome to Awaaz Network</h2>
 <input id="email" type="email" placeholder="Email address">
@@ -55,20 +53,17 @@ button:disabled{opacity:.5}
 <button id="forgotBtn" class="secondary">Forgot Password</button>
 <p class="muted">Signup ke baad email confirmation ki zarurat ho sakti hai.</p>
 </section>
-
 <section id="resetSection" class="card hidden">
 <h2>Set New Password</h2>
 <input id="newPassword" type="password" placeholder="New password (minimum 6 characters)">
 <button id="updatePasswordBtn">Update Password</button>
 </section>
-
 <section id="profileSection" class="card hidden">
 <h2>Your Profile</h2>
 <input id="displayName" placeholder="Display name">
 <textarea id="bio" placeholder="Write something about yourself"></textarea>
 <button id="saveProfileBtn">Save Profile</button>
 </section>
-
 <section id="homeSection" class="hidden">
 <div class="card">
 <h2 id="welcome">Home Feed</h2>
@@ -82,30 +77,24 @@ button:disabled{opacity:.5}
 <textarea id="photoCaption" maxlength="1000" placeholder="Write a caption for your photo..."></textarea>
 <input id="photoFile" type="file" accept="image/jpeg,image/png,image/webp">
 <img id="photoPreview" class="preview hidden" alt="Photo preview">
-<p class="muted">JPG, PNG ya WebP. Maximum 5 MB. Sirf wahi photo upload karein jise share karne ka adhikar ho. Private details wali photo na bhejein.</p>
+<p class="muted">JPG, PNG ya WebP. Maximum 5 MB. Photo posts admin review ke baad publish hongi.</p>
 <button id="photoPostBtn">Upload Photo Post</button>
 </div>
-
 <div class="card">
 <h2>🌍 Public Feed</h2>
 <div id="feed">Loading posts...</div>
 </div>
-
 <div class="card">
 <h2>My Pending Posts</h2>
 <div id="myPending">Loading...</div>
 </div>
-
-<div class="card">
-<button id="logoutBtn" class="secondary">Logout</button>
-</div>
+<div class="card"><button id="logoutBtn" class="secondary">Logout</button></div>
 </section>
 </main>
-
 <script>
 const SUPABASE_URL = "https://sqcsvabswnbqrapcbckb.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_dnoZLBNMFChOAPwNA9n4dA_G4xYwPMx";
-const db = window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 const $ = id => document.getElementById(id);
 let currentUser = null;
 let previewUrl = null;
@@ -122,10 +111,24 @@ function safeFileName(name){
   return name.toLowerCase().replace(/[^a-z0-9.]/g,"-").slice(-80);
 }
 
+// Naye posts sirf secure Edge Function ke zariye database mein jayenge.
+async function submitForModeration(content,imagePath=null){
+  const {data:{session},error:sessionError}=await db.auth.getSession();
+  if(sessionError) throw sessionError;
+  if(!session) throw new Error("Session expire ho gaya. Dobara login karein.");
+
+  const {data,error}=await db.functions.invoke("moderate-post",{
+    body:{content,image_url:imagePath},
+    headers:{Authorization:"Bearer "+session.access_token}
+  });
+  if(error) throw error;
+  if(!data?.success) throw new Error(data?.error || "Post submit nahi ho saki.");
+  return data;
+}
+
 async function loadProfile(){
   const {data,error}=await db.from("profiles").select("*").eq("id",currentUser.id).maybeSingle();
   if(error) throw error;
-
   if(!data){
     const base=(currentUser.user_metadata?.username || currentUser.email.split("@")[0] || "user")
       .toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,20);
@@ -140,7 +143,6 @@ async function loadProfile(){
     show("profileSection");
     return;
   }
-
   $("displayName").value=data.display_name || "";
   $("bio").value=data.bio || "";
   if(!data.display_name) show("profileSection");
@@ -178,14 +180,11 @@ async function createTextPost(){
   if(!content){message("Please write something first.",true);return;}
   $("postBtn").disabled=true;
   try{
-    const {error}=await db.from("posts").insert({
-      user_id:currentUser.id,content,status:"pending",is_published:false
-    });
-    if(error) throw error;
+    const result=await submitForModeration(content);
     $("postText").value="";
-    message("Text post review ke liye submit ho gayi!");
+    message(result.message || "Post moderation ke liye submit ho gayi!");
     await loadFeed();
-  }catch(e){message(e.message,true);}
+  }catch(e){message("Post error: "+e.message,true);}
   finally{$("postBtn").disabled=false;}
 }
 
@@ -218,32 +217,22 @@ async function createPhotoPost(){
   if(!["image/jpeg","image/png","image/webp"].includes(file.type)){
     message("Only JPG, PNG or WebP photos are allowed.",true);return;
   }
-
   $("photoPostBtn").disabled=true;
   message("Photo upload ho rahi hai...");
   const path=currentUser.id+"/"+Date.now()+"-"+safeFileName(file.name);
-
   try{
     const {error:uploadError}=await db.storage.from("post-images").upload(path,file,{
       contentType:file.type,upsert:false
     });
     if(uploadError) throw uploadError;
 
-    const {error:postError}=await db.from("posts").insert({
-      user_id:currentUser.id,
-      content:caption,
-      image_url:path,
-      status:"pending",
-      is_published:false
-    });
-    if(postError) throw postError;
-
+    const result=await submitForModeration(caption,path);
     $("photoCaption").value="";
     $("photoFile").value="";
     $("photoPreview").classList.add("hidden");
     if(previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl=null;
-    message("Photo post review ke liye submit ho gayi!");
+    message(result.message || "Photo post admin review ke liye submit ho gayi!");
     await loadFeed();
   }catch(e){
     message("Photo post error: "+e.message,true);
@@ -263,15 +252,12 @@ async function toggleLike(postId,button){
     const {data:existing,error:findError}=await db.from("post_likes")
       .select("id").eq("post_id",postId).eq("user_id",currentUser.id).maybeSingle();
     if(findError)throw findError;
-
     if(existing){
       const {error}=await db.from("post_likes").delete()
         .eq("post_id",postId).eq("user_id",currentUser.id);
       if(error)throw error;
     }else{
-      const {error}=await db.from("post_likes").insert({
-        post_id:postId,user_id:currentUser.id
-      });
+      const {error}=await db.from("post_likes").insert({post_id:postId,user_id:currentUser.id});
       if(error)throw error;
     }
     await loadFeed();
@@ -302,34 +288,26 @@ async function loadFeed(){
   try{
     const {data:posts,error}=await db.from("posts")
       .select("id,user_id,content,image_url,status,created_at")
-      .eq("status","approved").order("created_at",{ascending:false}).limit(50);
+      .eq("status","approved").eq("is_published",true)
+      .order("created_at",{ascending:false}).limit(50);
     if(error)throw error;
 
     if(!posts?.length)$("feed").textContent="Abhi koi approved post nahi hai.";
     else{
       const ids=[...new Set(posts.map(p=>p.user_id))];
       const postIds=posts.map(p=>p.id);
-
-      const {data:profiles,error:profileError}=await db.from("profiles")
-        .select("id,display_name").in("id",ids);
-      if(profileError)throw profileError;
-
       const {data:likes,error:likesError}=await db.from("post_likes")
         .select("id,post_id,user_id").in("post_id",postIds);
       if(likesError)throw likesError;
-
       const {data:comments,error:commentsError}=await db.from("post_comments")
         .select("id,post_id,user_id,content,created_at")
         .in("post_id",postIds).order("created_at",{ascending:true});
       if(commentsError)throw commentsError;
-
       const commentUserIds=[...new Set((comments||[]).map(c=>c.user_id))];
       const allUserIds=[...new Set([...ids,...commentUserIds])];
-
       const {data:commentProfiles,error:commentProfileError}=await db.from("profiles")
         .select("id,display_name").in("id",allUserIds);
       if(commentProfileError)throw commentProfileError;
-
       const names={};
       (commentProfiles||[]).forEach(p=>names[p.id]=p.display_name||"Awaaz User");
       $("feed").replaceChildren();
@@ -337,113 +315,77 @@ async function loadFeed(){
       for(const p of posts){
         const article=document.createElement("article");
         article.className="post";
-
         const author=document.createElement("strong");
         author.textContent=names[p.user_id]||"Awaaz User";
         const body=document.createElement("p");
         body.textContent=p.content||"";
         article.append(author,body);
-
         if(p.image_url){
           const url=await signedPhoto(p.image_url);
           if(url){
             const img=document.createElement("img");
-            img.src=url;img.alt="Community photo";
-            article.append(img);
+            img.src=url;img.alt="Community photo";article.append(img);
           }else{
             const note=document.createElement("p");
-            note.className="muted";
-            note.textContent="Photo is temporarily unavailable.";
-            article.append(note);
+            note.className="muted";note.textContent="Photo is temporarily unavailable.";article.append(note);
           }
         }
-
         const postLikes=(likes||[]).filter(l=>l.post_id===p.id);
         const liked=postLikes.some(l=>l.user_id===currentUser.id);
-
-        const actions=document.createElement("div");
-        actions.className="post-actions";
-
+        const actions=document.createElement("div");actions.className="post-actions";
         const likeButton=document.createElement("button");
         likeButton.className="like-btn"+(liked?" liked":"");
         likeButton.textContent=(liked?"♥ Liked":"♡ Like")+" ("+postLikes.length+")";
-        likeButton.onclick=()=>toggleLike(p.id,likeButton);
-        actions.append(likeButton);
-
-        const date=document.createElement("small");
-        date.className="muted";
-        date.textContent=new Date(p.created_at).toLocaleString();
-        actions.append(date);
+        likeButton.onclick=()=>toggleLike(p.id,likeButton);actions.append(likeButton);
+        const date=document.createElement("small");date.className="muted";
+        date.textContent=new Date(p.created_at).toLocaleString();actions.append(date);
         article.append(actions);
 
-        const commentArea=document.createElement("div");
-        commentArea.className="comment-area";
-
-        const commentHeading=document.createElement("strong");
-        commentHeading.textContent="💬 Comments ("+(comments||[]).filter(c=>c.post_id===p.id).length+")";
-        commentArea.append(commentHeading);
-
+        const commentArea=document.createElement("div");commentArea.className="comment-area";
         const postComments=(comments||[]).filter(c=>c.post_id===p.id);
+        const commentHeading=document.createElement("strong");
+        commentHeading.textContent="💬 Comments ("+postComments.length+")";commentArea.append(commentHeading);
         if(!postComments.length){
-          const empty=document.createElement("p");
-          empty.className="muted";
-          empty.textContent="Abhi koi comment nahi hai.";
-          commentArea.append(empty);
+          const empty=document.createElement("p");empty.className="muted";
+          empty.textContent="Abhi koi comment nahi hai.";commentArea.append(empty);
         }else{
           postComments.forEach(c=>{
-            const item=document.createElement("div");
-            item.className="comment";
-            const name=document.createElement("strong");
-            name.textContent=names[c.user_id]||"Awaaz User";
-            const text=document.createElement("p");
-            text.textContent=c.content;
-            const time=document.createElement("small");
-            time.textContent=new Date(c.created_at).toLocaleString();
-            item.append(name,text,time);
-            commentArea.append(item);
+            const item=document.createElement("div");item.className="comment";
+            const name=document.createElement("strong");name.textContent=names[c.user_id]||"Awaaz User";
+            const text=document.createElement("p");text.textContent=c.content;
+            const time=document.createElement("small");time.textContent=new Date(c.created_at).toLocaleString();
+            item.append(name,text,time);commentArea.append(item);
           });
         }
-
-        const input=document.createElement("textarea");
-        input.className="comment-input";
-        input.maxLength=1000;
-        input.placeholder="Write a comment...";
-
-        const commentButton=document.createElement("button");
-        commentButton.textContent="Add Comment";
+        const input=document.createElement("textarea");input.className="comment-input";
+        input.maxLength=1000;input.placeholder="Write a comment...";
+        const commentButton=document.createElement("button");commentButton.textContent="Add Comment";
         commentButton.onclick=()=>addComment(p.id,input,commentButton);
-
-        commentArea.append(input,commentButton);
-        article.append(commentArea);
-        $("feed").append(article);
+        commentArea.append(input,commentButton);article.append(commentArea);$("feed").append(article);
       }
     }
 
     const {data:pending,error:pendingError}=await db.from("posts")
-      .select("id,content,image_url,created_at")
-      .eq("user_id",currentUser.id).eq("status","pending")
+      .select("id,content,image_url,created_at,status,moderation_reason")
+      .eq("user_id",currentUser.id).in("status",["pending_review","pending"])
       .order("created_at",{ascending:false});
     if(pendingError)throw pendingError;
-
     if(!pending?.length)$("myPending").textContent="No pending posts.";
     else{
       $("myPending").replaceChildren();
       for(const p of pending){
-        const item=document.createElement("article");
-        item.className="post";
-        const status=document.createElement("p");
-        status.className="status";
-        status.textContent="⏳ Pending review";
-        const body=document.createElement("p");
-        body.textContent=p.content||"Photo post";
+        const item=document.createElement("article");item.className="post";
+        const status=document.createElement("p");status.className="status";
+        status.textContent="⏳ Pending admin review";
+        const body=document.createElement("p");body.textContent=p.content||"Photo post";
         item.append(status,body);
+        if(p.moderation_reason){
+          const reason=document.createElement("p");reason.className="muted";
+          reason.textContent=p.moderation_reason;item.append(reason);
+        }
         if(p.image_url){
           const url=await signedPhoto(p.image_url);
-          if(url){
-            const img=document.createElement("img");
-            img.src=url;img.alt="Your pending photo";
-            item.append(img);
-          }
+          if(url){const img=document.createElement("img");img.src=url;img.alt="Your pending photo";item.append(img);}
         }
         $("myPending").append(item);
       }
@@ -455,16 +397,10 @@ async function loadFeed(){
 }
 
 $("signupBtn").onclick=async()=>{
-  const email=$("email").value.trim();
-  const password=$("password").value;
-  const name=$("signupName").value.trim();
-  if(!email||password.length<6||!name){
-    message("Email, password (6+) aur display name bharein.",true);return;
-  }
+  const email=$("email").value.trim(),password=$("password").value,name=$("signupName").value.trim();
+  if(!email||password.length<6||!name){message("Email, password (6+) aur display name bharein.",true);return;}
   const username="user_"+Math.random().toString(36).slice(2,10);
-  const {data,error}=await db.auth.signUp({
-    email,password,options:{data:{username,display_name:name}}
-  });
+  const {data,error}=await db.auth.signUp({email,password,options:{data:{username,display_name:name}}});
   if(error)message(error.message,true);
   else if(data.session){
     currentUser=data.user;
@@ -497,40 +433,28 @@ $("updatePasswordBtn").onclick=async()=>{
   if(password.length<6){message("Password kam se kam 6 characters ka hona chahiye.",true);return;}
   const {error}=await db.auth.updateUser({password});
   if(error){message(error.message,true);return;}
-  $("newPassword").value="";
-  message("Password update ho gaya. Ab login karein.");
-  show("authSection");
+  $("newPassword").value="";message("Password update ho gaya. Ab login karein.");show("authSection");
 };
 
 $("saveProfileBtn").onclick=saveProfile;
 $("postBtn").onclick=createTextPost;
 $("photoPostBtn").onclick=createPhotoPost;
-
 $("logoutBtn").onclick=async()=>{
   const {error}=await db.auth.signOut();
   if(error){message(error.message,true);return;}
-  currentUser=null;
-  show("authSection");
-  message("Logout successful.");
+  currentUser=null;show("authSection");message("Logout successful.");
 };
 
 db.auth.onAuthStateChange((event,session)=>{
-  if(event==="PASSWORD_RECOVERY"){
-    show("resetSection");
-    message("Apna naya password set karein.");
-  }
+  if(event==="PASSWORD_RECOVERY"){show("resetSection");message("Apna naya password set karein.");}
 });
 
 (async()=>{
-  if(window.location.hash.includes("type=recovery")){
-    show("resetSection");
-    return;
-  }
+  if(window.location.hash.includes("type=recovery")){show("resetSection");return;}
   const {data}=await db.auth.getSession();
   if(data.session){
     currentUser=data.session.user;
-    try{await loadProfile();}
-    catch(e){message(e.message,true);}
+    try{await loadProfile();}catch(e){message(e.message,true);}
   }else show("authSection");
 })();
 </script>
