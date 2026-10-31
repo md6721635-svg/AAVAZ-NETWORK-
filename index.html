@@ -1,9 +1,8 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Awaaz Network</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -15,20 +14,21 @@ header p{margin:6px 0 0;font-size:13px}
 main{max-width:650px;margin:20px auto;padding:12px}
 .card{background:white;padding:18px;margin-bottom:15px;border-radius:12px;box-shadow:0 2px 8px #00000012}
 input,textarea{width:100%;padding:12px;margin:7px 0;border:1px solid #ccc;border-radius:7px;font-size:16px}
-textarea{min-height:100px;resize:vertical}
+textarea{min-height:90px;resize:vertical}
 button{background:#1d4ed8;color:white;border:0;padding:12px 17px;border-radius:7px;font-size:15px;margin:5px 3px;cursor:pointer}
-button.secondary{background:#475569}
-button:disabled{opacity:.5}
+.secondary{background:#475569}
 .hidden{display:none}
 .muted{color:#64748b;font-size:13px}
 .post{border-bottom:1px solid #eee;padding:12px 0}
 .post:last-child{border:0}
+.post img{width:100%;max-height:420px;object-fit:contain;border-radius:9px;margin-top:8px;background:#eee}
 .status{font-size:12px;color:#a16207}
-#message{padding:10px;color:#166534}
+#message{padding:10px;color:#166534;overflow-wrap:anywhere}
+.preview{width:100%;max-height:300px;object-fit:contain;margin-top:8px;border-radius:8px}
+button:disabled{opacity:.5}
 </style>
 </head>
 <body>
-
 <header>
 <h1>📢 Awaaz Network</h1>
 <p>Aapki awaaz, aapka adhikar.</p>
@@ -48,6 +48,12 @@ button:disabled{opacity:.5}
 <p class="muted">Signup ke baad email confirmation ki zarurat ho sakti hai.</p>
 </section>
 
+<section id="resetSection" class="card hidden">
+<h2>Set New Password</h2>
+<input id="newPassword" type="password" placeholder="New password (minimum 6 characters)">
+<button id="updatePasswordBtn">Update Password</button>
+</section>
+
 <section id="profileSection" class="card hidden">
 <h2>Your Profile</h2>
 <input id="displayName" placeholder="Display name">
@@ -59,9 +65,17 @@ button:disabled{opacity:.5}
 <div class="card">
 <h2 id="welcome">Home Feed</h2>
 <p class="muted">Apni baat duniya tak pahunchaiye.</p>
+<h3>✍️ Text Post</h3>
 <textarea id="postText" maxlength="2000" placeholder="What is on your mind?"></textarea>
-<p class="muted">Maximum 2000 characters. Personal phone number, address ya school details post na karein.</p>
-<button id="postBtn">Submit Post</button>
+<p class="muted">Maximum 2000 characters. Private information post na karein.</p>
+<button id="postBtn">Submit Text Post</button>
+<hr>
+<h3>📸 Photo Post</h3>
+<textarea id="photoCaption" maxlength="1000" placeholder="Write a caption for your photo..."></textarea>
+<input id="photoFile" type="file" accept="image/jpeg,image/png,image/webp">
+<img id="photoPreview" class="preview hidden" alt="Photo preview">
+<p class="muted">JPG, PNG ya WebP. Maximum 5 MB. Sirf wahi photo upload karein jise share karne ka adhikar ho. Private details wali photo na bhejein.</p>
+<button id="photoPostBtn">Upload Photo Post</button>
 </div>
 
 <div class="card">
@@ -83,354 +97,319 @@ button:disabled{opacity:.5}
 <script>
 const SUPABASE_URL = "https://sqcsvabswnbqrapcbckb.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_dnoZLBNMFChOAPwNA9n4dA_G4xYwPMx";
-
-const db = window.supabase.createClient(
-  SUPABASE_URL,
-  SUPABASE_PUBLISHABLE_KEY
-);
-
-let currentUser = null;
-
+const db = window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $ = id => document.getElementById(id);
+let currentUser = null;
+let previewUrl = null;
 
-function message(text, error=false) {
-  $("message").textContent = text;
-  $("message").style.color = error ? "#b91c1c" : "#166534";
+function message(text,error=false){
+  $("message").textContent=text;
+  $("message").style.color=error?"#b91c1c":"#166534";
 }
-
-function show(section) {
-  ["authSection","profileSection","homeSection"].forEach(id => {
-    $(id).classList.add("hidden");
-  });
+function show(section){
+  ["authSection","profileSection","homeSection","resetSection"].forEach(id=>$(id).classList.add("hidden"));
   $(section).classList.remove("hidden");
 }
+function safeFileName(name){
+  return name.toLowerCase().replace(/[^a-z0-9.]/g,"-").slice(-80);
+}
 
-async function loadProfile() {
-  const {data, error} = await db
-    .from("profiles")
-    .select("*")
-    .eq("id", currentUser.id)
-    .maybeSingle();
+async function loadProfile(){
+  const {data,error}=await db.from("profiles").select("*").eq("id",currentUser.id).maybeSingle();
+  if(error) throw error;
 
-  if (error) throw error;
-
-  if (!data) {
-    const base = (currentUser.user_metadata?.username ||
-      currentUser.email.split("@")[0] || "user")
-      .toLowerCase().replace(/[^a-z0-9_]/g,"")
-      .slice(0,20);
-
-    const username = base + "_" + currentUser.id.slice(0,6);
-
-    const {error: insertError} = await db.from("profiles").insert({
-      id: currentUser.id,
-      username,
-      display_name: currentUser.user_metadata?.display_name || "",
-      bio: ""
+  if(!data){
+    const base=(currentUser.user_metadata?.username || currentUser.email.split("@")[0] || "user")
+      .toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,20);
+    const username=base+"_"+currentUser.id.slice(0,6);
+    const {error:insertError}=await db.from("profiles").insert({
+      id:currentUser.id,username,
+      display_name:currentUser.user_metadata?.display_name || "",bio:""
     });
-
-    if (insertError) throw insertError;
-
-    $("displayName").value =
-      currentUser.user_metadata?.display_name || "";
-    $("bio").value = "";
+    if(insertError) throw insertError;
+    $("displayName").value=currentUser.user_metadata?.display_name || "";
+    $("bio").value="";
     show("profileSection");
     return;
   }
 
-  $("displayName").value = data.display_name || "";
-  $("bio").value = data.bio || "";
-
-  if (!data.display_name) {
-    show("profileSection");
-  } else {
+  $("displayName").value=data.display_name || "";
+  $("bio").value=data.bio || "";
+  if(!data.display_name) show("profileSection");
+  else{
+    $("welcome").textContent="Welcome, "+data.display_name;
     show("homeSection");
     await loadFeed();
   }
 }
 
-async function saveProfile() {
-  const name = $("displayName").value.trim();
-  const bio = $("bio").value.trim();
-
-  if (!name) {
-    message("Please enter your display name.", true);
-    return;
-  }
-
-  $("saveProfileBtn").disabled = true;
-
-  try {
-    const {data: existing, error: findError} = await db
-      .from("profiles")
-      .select("username")
-      .eq("id", currentUser.id)
-      .maybeSingle();
-
-    if (findError) throw findError;
-
-    const username = existing?.username ||
-      ("user_" + currentUser.id.slice(0,12));
-
-    const {error} = await db.from("profiles").upsert({
-      id: currentUser.id,
-      username,
-      display_name: name,
-      bio
+async function saveProfile(){
+  const name=$("displayName").value.trim();
+  const bio=$("bio").value.trim();
+  if(!name){message("Please enter your display name.",true);return;}
+  $("saveProfileBtn").disabled=true;
+  try{
+    const {data:existing,error:findError}=await db.from("profiles")
+      .select("username").eq("id",currentUser.id).maybeSingle();
+    if(findError) throw findError;
+    const username=existing?.username || ("user_"+currentUser.id.slice(0,12));
+    const {error}=await db.from("profiles").upsert({
+      id:currentUser.id,username,display_name:name,bio
     });
-
-    if (error) throw error;
-
+    if(error) throw error;
+    $("welcome").textContent="Welcome, "+name;
+    show("homeSection");
+    await loadFeed();
     message("Profile save ho gayi!");
-    $("welcome").textContent = "Welcome, " + name;
-    show("homeSection");
-    await loadFeed();
-  } catch(e) {
-    message(e.message, true);
-  } finally {
-    $("saveProfileBtn").disabled = false;
-  }
+  }catch(e){message(e.message,true);}
+  finally{$("saveProfileBtn").disabled=false;}
 }
 
-async function createPost() {
-  const content = $("postText").value.trim();
-
-  if (!content) {
-    message("Please write something first.", true);
-    return;
-  }
-
-  if (content.length > 2000) {
-    message("Post is too long.", true);
-    return;
-  }
-
-  $("postBtn").disabled = true;
-
-  try {
-    const {error} = await db.from("posts").insert({
-      user_id: currentUser.id,
-      content,
-      status: "pending",
-      is_published: false
+async function createTextPost(){
+  const content=$("postText").value.trim();
+  if(!content){message("Please write something first.",true);return;}
+  $("postBtn").disabled=true;
+  try{
+    const {error}=await db.from("posts").insert({
+      user_id:currentUser.id,content,status:"pending",is_published:false
     });
-
-    if (error) throw error;
-
-    $("postText").value = "";
-    message("Your post has been submitted for review!");
+    if(error) throw error;
+    $("postText").value="";
+    message("Text post review ke liye submit ho gayi!");
     await loadFeed();
-  } catch(e) {
-    message(e.message, true);
-  } finally {
-    $("postBtn").disabled = false;
-  }
+  }catch(e){message(e.message,true);}
+  finally{$("postBtn").disabled=false;}
 }
 
-async function loadFeed() {
-  $("feed").textContent = "Loading posts...";
-  $("myPending").textContent = "Loading...";
+$("photoFile").addEventListener("change",()=>{
+  const file=$("photoFile").files[0];
+  if(previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl=null;
+  $("photoPreview").classList.add("hidden");
+  if(!file)return;
+  if(!["image/jpeg","image/png","image/webp"].includes(file.type)){
+    $("photoFile").value="";
+    message("Only JPG, PNG or WebP photos are allowed.",true);
+    return;
+  }
+  if(file.size>5*1024*1024){
+    $("photoFile").value="";
+    message("Photo 5 MB se chhoti honi chahiye.",true);
+    return;
+  }
+  previewUrl=URL.createObjectURL(file);
+  $("photoPreview").src=previewUrl;
+  $("photoPreview").classList.remove("hidden");
+});
 
-  try {
-    const {data: posts, error} = await db
-      .from("posts")
-      .select("id,user_id,content,status,created_at")
-      .eq("status", "approved")
-      .order("created_at", {ascending:false})
-      .limit(50);
+async function createPhotoPost(){
+  const file=$("photoFile").files[0];
+  const caption=$("photoCaption").value.trim();
+  if(!file){message("Please choose a photo first.",true);return;}
+  if(file.size>5*1024*1024){message("Photo 5 MB se chhoti honi chahiye.",true);return;}
+  if(!["image/jpeg","image/png","image/webp"].includes(file.type)){
+    message("Only JPG, PNG or WebP photos are allowed.",true);return;
+  }
 
-    if (error) throw error;
+  $("photoPostBtn").disabled=true;
+  message("Photo upload ho rahi hai...");
+  const path=currentUser.id+"/"+Date.now()+"-"+safeFileName(file.name);
 
-    if (!posts || posts.length === 0) {
-      $("feed").textContent = "Abhi koi approved post nahi hai.";
-    } else {
-      const userIds = [...new Set(posts.map(p => p.user_id))];
-      const {data: profiles, error: profileError} = await db
-        .from("profiles")
-        .select("id,display_name")
-        .in("id", userIds);
+  try{
+    const {error:uploadError}=await db.storage.from("post-images").upload(path,file,{
+      contentType:file.type,upsert:false
+    });
+    if(uploadError) throw uploadError;
 
-      if (profileError) throw profileError;
+    const {error:postError}=await db.from("posts").insert({
+      user_id:currentUser.id,
+      content:caption,
+      image_url:path,
+      status:"pending",
+      is_published:false
+    });
+    if(postError) throw postError;
 
-      const names = {};
-      (profiles || []).forEach(p => names[p.id] = p.display_name);
+    $("photoCaption").value="";
+    $("photoFile").value="";
+    $("photoPreview").classList.add("hidden");
+    if(previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl=null;
+    message("Photo post review ke liye submit ho gayi!");
+    await loadFeed();
+  }catch(e){
+    message("Photo post error: "+e.message,true);
+  }finally{$("photoPostBtn").disabled=false;}
+}
 
+async function signedPhoto(path){
+  if(!path)return null;
+  const {data,error}=await db.storage.from("post-images").createSignedUrl(path,3600);
+  if(error){console.error(error);return null;}
+  return data.signedUrl;
+}
+
+async function loadFeed(){
+  $("feed").textContent="Loading posts...";
+  $("myPending").textContent="Loading...";
+  try{
+    const {data:posts,error}=await db.from("posts")
+      .select("id,user_id,content,image_url,status,created_at")
+      .eq("status","approved").order("created_at",{ascending:false}).limit(50);
+    if(error)throw error;
+
+    if(!posts?.length)$("feed").textContent="Abhi koi approved post nahi hai.";
+    else{
+      const ids=[...new Set(posts.map(p=>p.user_id))];
+      const {data:profiles,error:profileError}=await db.from("profiles")
+        .select("id,display_name").in("id",ids);
+      if(profileError)throw profileError;
+      const names={};
+      (profiles||[]).forEach(p=>names[p.id]=p.display_name);
       $("feed").replaceChildren();
 
-      posts.forEach(p => {
-        const article = document.createElement("article");
-        article.className = "post";
-
-        const author = document.createElement("strong");
-        author.textContent = names[p.user_id] || "Awaaz User";
-
-        const body = document.createElement("p");
-        body.textContent = p.content;
-
-        const date = document.createElement("small");
-        date.className = "muted";
-        date.textContent = new Date(p.created_at).toLocaleString();
-
-        article.append(author, body, date);
+      for(const p of posts){
+        const article=document.createElement("article");
+        article.className="post";
+        const author=document.createElement("strong");
+        author.textContent=names[p.user_id]||"Awaaz User";
+        const body=document.createElement("p");
+        body.textContent=p.content||"";
+        article.append(author,body);
+        if(p.image_url){
+          const url=await signedPhoto(p.image_url);
+          if(url){
+            const img=document.createElement("img");
+            img.src=url;img.alt="Community photo";
+            article.append(img);
+          }else{
+            const note=document.createElement("p");
+            note.className="muted";
+            note.textContent="Photo is temporarily unavailable.";
+            article.append(note);
+          }
+        }
+        const date=document.createElement("small");
+        date.className="muted";
+        date.textContent=new Date(p.created_at).toLocaleString();
+        article.append(date);
         $("feed").append(article);
-      });
+      }
     }
 
-    const {data: pending, error: pendingError} = await db
-      .from("posts")
-      .select("id,content,created_at")
-      .eq("user_id", currentUser.id)
-      .eq("status", "pending")
-      .order("created_at", {ascending:false});
+    const {data:pending,error:pendingError}=await db.from("posts")
+      .select("id,content,image_url,created_at")
+      .eq("user_id",currentUser.id).eq("status","pending")
+      .order("created_at",{ascending:false});
+    if(pendingError)throw pendingError;
 
-    if (pendingError) throw pendingError;
-
-    if (!pending || pending.length === 0) {
-      $("myPending").textContent = "No pending posts.";
-    } else {
+    if(!pending?.length)$("myPending").textContent="No pending posts.";
+    else{
       $("myPending").replaceChildren();
-
-      pending.forEach(p => {
-        const item = document.createElement("article");
-        item.className = "post";
-
-        const status = document.createElement("p");
-        status.className = "status";
-        status.textContent = "⏳ Pending review";
-
-        const body = document.createElement("p");
-        body.textContent = p.content;
-
-        item.append(status, body);
+      for(const p of pending){
+        const item=document.createElement("article");
+        item.className="post";
+        const status=document.createElement("p");
+        status.className="status";
+        status.textContent="⏳ Pending review";
+        const body=document.createElement("p");
+        body.textContent=p.content||"Photo post";
+        item.append(status,body);
+        if(p.image_url){
+          const url=await signedPhoto(p.image_url);
+          if(url){
+            const img=document.createElement("img");
+            img.src=url;img.alt="Your pending photo";
+            item.append(img);
+          }
+        }
         $("myPending").append(item);
-      });
+      }
     }
-
-  } catch(e) {
-    $("feed").textContent = "Feed error: " + e.message;
-    $("myPending").textContent = "Could not load posts.";
+  }catch(e){
+    $("feed").textContent="Feed error: "+e.message;
+    $("myPending").textContent="Could not load posts.";
   }
 }
 
-$("signupBtn").onclick = async () => {
-  const email = $("email").value.trim();
-  const password = $("password").value;
-  const name = $("signupName").value.trim();
-
-  if (!email || password.length < 6 || !name) {
-    message("Email, password (6+ characters) aur display name bharein.", true);
-    return;
+$("signupBtn").onclick=async()=>{
+  const email=$("email").value.trim();
+  const password=$("password").value;
+  const name=$("signupName").value.trim();
+  if(!email||password.length<6||!name){
+    message("Email, password (6+) aur display name bharein.",true);return;
   }
-
-  const username = "user_" + Math.random().toString(36).slice(2,10);
-
-  const {data, error} = await db.auth.signUp({
-    email,
-    password,
-    options: {data: {username, display_name:name}}
+  const username="user_"+Math.random().toString(36).slice(2,10);
+  const {data,error}=await db.auth.signUp({
+    email,password,options:{data:{username,display_name:name}}
   });
-
-  if (error) {
-    message(error.message, true);
-  } else if (data.session) {
-    currentUser = data.user;
-    try {
-      await loadProfile();
-      message("Account created successfully!");
-    } catch(e) {
-      message(e.message, true);
-    }
-  } else {
-    message("Account created. Email confirmation karke Login karein.");
-  }
+  if(error)message(error.message,true);
+  else if(data.session){
+    currentUser=data.user;
+    try{await loadProfile();message("Account created successfully!");}
+    catch(e){message(e.message,true);}
+  }else message("Account created. Email confirmation karke Login karein.");
 };
 
-$("loginBtn").onclick = async () => {
-  const {data, error} = await db.auth.signInWithPassword({
-    email: $("email").value.trim(),
-    password: $("password").value
+$("loginBtn").onclick=async()=>{
+  const {data,error}=await db.auth.signInWithPassword({
+    email:$("email").value.trim(),password:$("password").value
   });
-
-  if (error) {
-    message(error.message, true);
-    return;
-  }
-
-  currentUser = data.user;
-
-  try {
-    await loadProfile();
-    message("Login successful!");
-  } catch(e) {
-    message(e.message, true);
-  }
+  if(error){message(error.message,true);return;}
+  currentUser=data.user;
+  try{await loadProfile();message("Login successful!");}
+  catch(e){message(e.message,true);}
 };
 
-$("forgotBtn").onclick = async () => {
-  const email = $("email").value.trim();
-
-  if (!email) {
-    message("Pehle email address enter karein.", true);
-    return;
-  }
-
-  const {error} = await db.auth.resetPasswordForEmail(email, {
-    redirectTo: SUPABASE_URL.replace(
-      "sqcsvabswnbqrapcbckb.supabase.co",
-      "md6721635-svg.github.io/AAVAZ-NETWORK-"
-    ).replace("https://md6721635-svg.github.io/AAVAZ-NETWORK-","https://md6721635-svg.github.io/AAVAZ-NETWORK-/")
+$("forgotBtn").onclick=async()=>{
+  const email=$("email").value.trim();
+  if(!email){message("Pehle email address enter karein.",true);return;}
+  const {error}=await db.auth.resetPasswordForEmail(email,{
+    redirectTo:"https://md6721635-svg.github.io/AAVAZ-NETWORK-/"
   });
-
-  message(error ? error.message : "Password reset email bhej diya gaya.");
+  message(error?error.message:"Password reset email bhej diya gaya.");
 };
 
-$("saveProfileBtn").onclick = saveProfile;
-$("postBtn").onclick = createPost;
+$("updatePasswordBtn").onclick=async()=>{
+  const password=$("newPassword").value;
+  if(password.length<6){message("Password kam se kam 6 characters ka hona chahiye.",true);return;}
+  const {error}=await db.auth.updateUser({password});
+  if(error){message(error.message,true);return;}
+  $("newPassword").value="";
+  message("Password update ho gaya. Ab login karein.");
+  show("authSection");
+};
 
-$("logoutBtn").onclick = async () => {
-  const {error} = await db.auth.signOut();
-  if (error) {
-    message(error.message, true);
-    return;
-  }
-  currentUser = null;
+$("saveProfileBtn").onclick=saveProfile;
+$("postBtn").onclick=createTextPost;
+$("photoPostBtn").onclick=createPhotoPost;
+
+$("logoutBtn").onclick=async()=>{
+  const {error}=await db.auth.signOut();
+  if(error){message(error.message,true);return;}
+  currentUser=null;
   show("authSection");
   message("Logout successful.");
 };
 
-db.auth.onAuthStateChange(async (event, session) => {
-  if (event === "PASSWORD_RECOVERY") {
-    message("Password recovery mode. Password update ke liye reset page ka use karein.");
-    return;
-  }
-
-  if (session?.user && !currentUser) {
-    currentUser = session.user;
-    try {
-      await loadProfile();
-    } catch(e) {
-      message(e.message, true);
-    }
-  }
-
-  if (!session && currentUser) {
-    currentUser = null;
-    show("authSection");
+db.auth.onAuthStateChange((event,session)=>{
+  if(event==="PASSWORD_RECOVERY"){
+    show("resetSection");
+    message("Apna naya password set karein.");
   }
 });
 
-(async () => {
-  const {data} = await db.auth.getSession();
-  if (data.session) {
-    currentUser = data.session.user;
-    try {
-      await loadProfile();
-    } catch(e) {
-      message(e.message, true);
-    }
-  } else {
-    show("authSection");
+(async()=>{
+  if(window.location.hash.includes("type=recovery")){
+    show("resetSection");
+    return;
   }
+  const {data}=await db.auth.getSession();
+  if(data.session){
+    currentUser=data.session.user;
+    try{await loadProfile();}
+    catch(e){message(e.message,true);}
+  }else show("authSection");
 })();
 </script>
 </body>
