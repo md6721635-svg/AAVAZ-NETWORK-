@@ -77,17 +77,14 @@ button:disabled{opacity:.5}
 <textarea id="photoCaption" maxlength="1000" placeholder="Write a caption for your photo..."></textarea>
 <input id="photoFile" type="file" accept="image/jpeg,image/png,image/webp">
 <img id="photoPreview" class="preview hidden" alt="Photo preview">
-<p class="muted">JPG, PNG ya WebP. Maximum 5 MB. Photo posts admin review ke baad publish hongi.</p>
+<p class="muted">JPG, PNG ya WebP. Maximum 5 MB. Photo public feed mein turant dikhegi.</p>
 <button id="photoPostBtn">Upload Photo Post</button>
 </div>
 <div class="card">
 <h2>🌍 Public Feed</h2>
 <div id="feed">Loading posts...</div>
 </div>
-<div class="card">
-<h2>My Pending Posts</h2>
-<div id="myPending">Loading...</div>
-</div>
+
 <div class="card"><button id="logoutBtn" class="secondary">Logout</button></div>
 </section>
 </main>
@@ -97,6 +94,7 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_dnoZLBNMFChOAPwNA9n4dA_G4xYwPMx
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 const $ = id => document.getElementById(id);
 let currentUser = null;
+let isNetworkAdmin = false;
 let previewUrl = null;
 
 function message(text,error=false){
@@ -134,8 +132,28 @@ async function loadProfile(){
   else{
     $("welcome").textContent="Welcome, "+data.display_name;
     show("homeSection");
+    await checkAdmin();
     await loadFeed();
   }
+}
+
+async function checkAdmin(){
+  isNetworkAdmin = false;
+  const {data,error}=await db.from("admin_users").select("role").eq("user_id",currentUser.id).maybeSingle();
+  if(error) throw error;
+  isNetworkAdmin = !!data && ["owner","moderator"].includes(data.role);
+}
+
+async function removePost(postId){
+  const reason=prompt("Post remove karne ka reason likhein:");
+  if(reason===null) return;
+  if(!reason.trim()){message("Removal reason zaroori hai.",true);return;}
+  try{
+    const {error}=await db.rpc("admin_remove_post",{p_post_id:postId,p_reason:reason.trim()});
+    if(error) throw error;
+    message("Post public feed se remove kar di gayi.");
+    await loadFeed();
+  }catch(e){message("Remove post error: "+e.message,true);}
 }
 
 async function saveProfile(){
@@ -154,6 +172,7 @@ async function saveProfile(){
     if(error) throw error;
     $("welcome").textContent="Welcome, "+name;
     show("homeSection");
+    await checkAdmin();
     await loadFeed();
     message("Profile save ho gayi!");
   }catch(e){message(e.message,true);}
@@ -289,7 +308,6 @@ async function addComment(postId,input,button){
 
 async function loadFeed(){
   $("feed").textContent="Loading posts...";
-  $("myPending").textContent="Loading...";
   try{
     const {data:posts,error}=await db.from("posts")
       .select("id,user_id,content,image_url,status,created_at")
@@ -344,6 +362,13 @@ async function loadFeed(){
         likeButton.onclick=()=>toggleLike(p.id,likeButton);actions.append(likeButton);
         const date=document.createElement("small");date.className="muted";
         date.textContent=new Date(p.created_at).toLocaleString();actions.append(date);
+        if(isNetworkAdmin){
+          const removeButton=document.createElement("button");
+          removeButton.textContent="Remove post";
+          removeButton.style.background="#b91c1c";
+          removeButton.onclick=()=>removePost(p.id);
+          actions.append(removeButton);
+        }
         article.append(actions);
 
         const commentArea=document.createElement("div");commentArea.className="comment-area";
@@ -370,34 +395,8 @@ async function loadFeed(){
       }
     }
 
-    const {data:pending,error:pendingError}=await db.from("posts")
-      .select("id,content,image_url,created_at,status,moderation_reason")
-      .eq("user_id",currentUser.id).in("status",["pending_review","pending"])
-      .order("created_at",{ascending:false});
-    if(pendingError)throw pendingError;
-    if(!pending?.length)$("myPending").textContent="No pending posts.";
-    else{
-      $("myPending").replaceChildren();
-      for(const p of pending){
-        const item=document.createElement("article");item.className="post";
-        const status=document.createElement("p");status.className="status";
-        status.textContent="⏳ Pending admin review";
-        const body=document.createElement("p");body.textContent=p.content||"Photo post";
-        item.append(status,body);
-        if(p.moderation_reason){
-          const reason=document.createElement("p");reason.className="muted";
-          reason.textContent=p.moderation_reason;item.append(reason);
-        }
-        if(p.image_url){
-          const url=await signedPhoto(p.image_url);
-          if(url){const img=document.createElement("img");img.src=url;img.alt="Your pending photo";item.append(img);}
-        }
-        $("myPending").append(item);
-      }
-    }
   }catch(e){
     $("feed").textContent="Feed error: "+e.message;
-    $("myPending").textContent="Could not load posts.";
   }
 }
 
@@ -447,7 +446,7 @@ $("photoPostBtn").onclick=createPhotoPost;
 $("logoutBtn").onclick=async()=>{
   const {error}=await db.auth.signOut();
   if(error){message(error.message,true);return;}
-  currentUser=null;show("authSection");message("Logout successful.");
+  currentUser=null;isNetworkAdmin=false;show("authSection");message("Logout successful.");
 };
 
 db.auth.onAuthStateChange((event,session)=>{
