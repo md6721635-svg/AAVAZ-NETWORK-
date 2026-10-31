@@ -15,7 +15,7 @@ main{max-width:650px;margin:20px auto;padding:12px}
 .card{background:white;padding:18px;margin-bottom:15px;border-radius:12px;box-shadow:0 2px 8px #00000012}
 input,textarea{width:100%;padding:12px;margin:7px 0;border:1px solid #ccc;border-radius:7px;font-size:16px}
 textarea{min-height:90px;resize:vertical}
-button{background:#1d4ed8;color:white;border:0;padding:12px 17px;border-radius:7px;font-size:15px;margin:5px 3px;cursor:pointer}
+button{background:#1d4ed8;color:white;border:0;padding:10px 14px;border-radius:7px;font-size:14px;margin:5px 3px;cursor:pointer}
 .secondary{background:#475569}
 .hidden{display:none}
 .muted{color:#64748b;font-size:13px}
@@ -26,6 +26,14 @@ button{background:#1d4ed8;color:white;border:0;padding:12px 17px;border-radius:7
 #message{padding:10px;color:#166534;overflow-wrap:anywhere}
 .preview{width:100%;max-height:300px;object-fit:contain;margin-top:8px;border-radius:8px}
 button:disabled{opacity:.5}
+.post-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
+.like-btn{background:#e2e8f0;color:#1e293b}
+.like-btn.liked{background:#dbeafe;color:#1d4ed8}
+.comment-area{background:#f8fafc;padding:10px;border-radius:8px;margin-top:10px}
+.comment{border-bottom:1px solid #e2e8f0;padding:8px 0}
+.comment:last-child{border:0}
+.comment small{color:#64748b}
+.comment-input{min-height:55px}
 </style>
 </head>
 <body>
@@ -249,6 +257,45 @@ async function signedPhoto(path){
   return data.signedUrl;
 }
 
+async function toggleLike(postId,button){
+  button.disabled=true;
+  try{
+    const {data:existing,error:findError}=await db.from("post_likes")
+      .select("id").eq("post_id",postId).eq("user_id",currentUser.id).maybeSingle();
+    if(findError)throw findError;
+
+    if(existing){
+      const {error}=await db.from("post_likes").delete()
+        .eq("post_id",postId).eq("user_id",currentUser.id);
+      if(error)throw error;
+    }else{
+      const {error}=await db.from("post_likes").insert({
+        post_id:postId,user_id:currentUser.id
+      });
+      if(error)throw error;
+    }
+    await loadFeed();
+  }catch(e){message("Like error: "+e.message,true);}
+  finally{button.disabled=false;}
+}
+
+async function addComment(postId,input,button){
+  const content=input.value.trim();
+  if(!content){message("Pehle comment likhein.",true);return;}
+  if(content.length>1000){message("Comment 1000 characters se chhota rakhein.",true);return;}
+  button.disabled=true;
+  try{
+    const {error}=await db.from("post_comments").insert({
+      post_id:postId,user_id:currentUser.id,content
+    });
+    if(error)throw error;
+    input.value="";
+    message("Comment add ho gaya!");
+    await loadFeed();
+  }catch(e){message("Comment error: "+e.message,true);}
+  finally{button.disabled=false;}
+}
+
 async function loadFeed(){
   $("feed").textContent="Loading posts...";
   $("myPending").textContent="Loading...";
@@ -261,21 +308,42 @@ async function loadFeed(){
     if(!posts?.length)$("feed").textContent="Abhi koi approved post nahi hai.";
     else{
       const ids=[...new Set(posts.map(p=>p.user_id))];
+      const postIds=posts.map(p=>p.id);
+
       const {data:profiles,error:profileError}=await db.from("profiles")
         .select("id,display_name").in("id",ids);
       if(profileError)throw profileError;
+
+      const {data:likes,error:likesError}=await db.from("post_likes")
+        .select("id,post_id,user_id").in("post_id",postIds);
+      if(likesError)throw likesError;
+
+      const {data:comments,error:commentsError}=await db.from("post_comments")
+        .select("id,post_id,user_id,content,created_at")
+        .in("post_id",postIds).order("created_at",{ascending:true});
+      if(commentsError)throw commentsError;
+
+      const commentUserIds=[...new Set((comments||[]).map(c=>c.user_id))];
+      const allUserIds=[...new Set([...ids,...commentUserIds])];
+
+      const {data:commentProfiles,error:commentProfileError}=await db.from("profiles")
+        .select("id,display_name").in("id",allUserIds);
+      if(commentProfileError)throw commentProfileError;
+
       const names={};
-      (profiles||[]).forEach(p=>names[p.id]=p.display_name);
+      (commentProfiles||[]).forEach(p=>names[p.id]=p.display_name||"Awaaz User");
       $("feed").replaceChildren();
 
       for(const p of posts){
         const article=document.createElement("article");
         article.className="post";
+
         const author=document.createElement("strong");
         author.textContent=names[p.user_id]||"Awaaz User";
         const body=document.createElement("p");
         body.textContent=p.content||"";
         article.append(author,body);
+
         if(p.image_url){
           const url=await signedPhoto(p.image_url);
           if(url){
@@ -289,10 +357,64 @@ async function loadFeed(){
             article.append(note);
           }
         }
+
+        const postLikes=(likes||[]).filter(l=>l.post_id===p.id);
+        const liked=postLikes.some(l=>l.user_id===currentUser.id);
+
+        const actions=document.createElement("div");
+        actions.className="post-actions";
+
+        const likeButton=document.createElement("button");
+        likeButton.className="like-btn"+(liked?" liked":"");
+        likeButton.textContent=(liked?"♥ Liked":"♡ Like")+" ("+postLikes.length+")";
+        likeButton.onclick=()=>toggleLike(p.id,likeButton);
+        actions.append(likeButton);
+
         const date=document.createElement("small");
         date.className="muted";
         date.textContent=new Date(p.created_at).toLocaleString();
-        article.append(date);
+        actions.append(date);
+        article.append(actions);
+
+        const commentArea=document.createElement("div");
+        commentArea.className="comment-area";
+
+        const commentHeading=document.createElement("strong");
+        commentHeading.textContent="💬 Comments ("+(comments||[]).filter(c=>c.post_id===p.id).length+")";
+        commentArea.append(commentHeading);
+
+        const postComments=(comments||[]).filter(c=>c.post_id===p.id);
+        if(!postComments.length){
+          const empty=document.createElement("p");
+          empty.className="muted";
+          empty.textContent="Abhi koi comment nahi hai.";
+          commentArea.append(empty);
+        }else{
+          postComments.forEach(c=>{
+            const item=document.createElement("div");
+            item.className="comment";
+            const name=document.createElement("strong");
+            name.textContent=names[c.user_id]||"Awaaz User";
+            const text=document.createElement("p");
+            text.textContent=c.content;
+            const time=document.createElement("small");
+            time.textContent=new Date(c.created_at).toLocaleString();
+            item.append(name,text,time);
+            commentArea.append(item);
+          });
+        }
+
+        const input=document.createElement("textarea");
+        input.className="comment-input";
+        input.maxLength=1000;
+        input.placeholder="Write a comment...";
+
+        const commentButton=document.createElement("button");
+        commentButton.textContent="Add Comment";
+        commentButton.onclick=()=>addComment(p.id,input,commentButton);
+
+        commentArea.append(input,commentButton);
+        article.append(commentArea);
         $("feed").append(article);
       }
     }
