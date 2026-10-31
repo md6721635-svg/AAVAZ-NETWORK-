@@ -111,21 +111,6 @@ function safeFileName(name){
   return name.toLowerCase().replace(/[^a-z0-9.]/g,"-").slice(-80);
 }
 
-// Naye posts sirf secure Edge Function ke zariye database mein jayenge.
-async function submitForModeration(content,imagePath=null){
-  const {data:{session},error:sessionError}=await db.auth.getSession();
-  if(sessionError) throw sessionError;
-  if(!session) throw new Error("Session expire ho gaya. Dobara login karein.");
-
-  const {data,error}=await db.functions.invoke("moderate-post",{
-    body:{content,image_url:imagePath},
-    headers:{Authorization:"Bearer "+session.access_token}
-  });
-  if(error) throw error;
-  if(!data?.success) throw new Error(data?.error || "Post submit nahi ho saki.");
-  return data;
-}
-
 async function loadProfile(){
   const {data,error}=await db.from("profiles").select("*").eq("id",currentUser.id).maybeSingle();
   if(error) throw error;
@@ -180,9 +165,19 @@ async function createTextPost(){
   if(!content){message("Please write something first.",true);return;}
   $("postBtn").disabled=true;
   try{
-    const result=await submitForModeration(content);
+    const {error}=await db.from("posts").insert({
+      user_id:currentUser.id,
+      content,
+      image_url:null,
+      status:"approved",
+      moderation_status:"approved",
+      moderation_reason:null,
+      moderated_at:new Date().toISOString(),
+      is_published:true
+    });
+    if(error) throw error;
     $("postText").value="";
-    message(result.message || "Post moderation ke liye submit ho gayi!");
+    message("Post publish ho gayi!");
     await loadFeed();
   }catch(e){message("Post error: "+e.message,true);}
   finally{$("postBtn").disabled=false;}
@@ -226,13 +221,23 @@ async function createPhotoPost(){
     });
     if(uploadError) throw uploadError;
 
-    const result=await submitForModeration(caption,path);
+    const {error:postError}=await db.from("posts").insert({
+      user_id:currentUser.id,
+      content:caption,
+      image_url:path,
+      status:"approved",
+      moderation_status:"approved",
+      moderation_reason:null,
+      moderated_at:new Date().toISOString(),
+      is_published:true
+    });
+    if(postError) throw postError;
     $("photoCaption").value="";
     $("photoFile").value="";
     $("photoPreview").classList.add("hidden");
     if(previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl=null;
-    message(result.message || "Photo post admin review ke liye submit ho gayi!");
+    message("Photo post publish ho gayi!");
     await loadFeed();
   }catch(e){
     message("Photo post error: "+e.message,true);
