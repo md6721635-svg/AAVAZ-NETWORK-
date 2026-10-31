@@ -2,386 +2,436 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Awaaz Network</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <style>
-    :root {
-      --navy:#101a33;
-      --blue:#3458db;
-      --bg:#f3f5fa;
-      --text:#182238;
-      --muted:#68738a;
-    }
-    * { box-sizing:border-box; }
-    body {
-      margin:0;
-      background:var(--bg);
-      color:var(--text);
-      font-family:Arial,sans-serif;
-    }
-    header {
-      background:var(--navy);
-      color:white;
-      padding:20px 16px;
-      text-align:center;
-    }
-    header h1 { margin:0; font-size:25px; }
-    header p { margin:7px 0 0; color:#d8e0ff; font-size:14px; }
-    main { max-width:560px; margin:26px auto; padding:0 14px; }
-    .card {
-      background:white;
-      border-radius:16px;
-      padding:22px;
-      margin-bottom:16px;
-      box-shadow:0 5px 22px #15264a12;
-    }
-    h2 { margin:0 0 8px; font-size:21px; }
-    .hint { color:var(--muted); font-size:14px; line-height:1.5; }
-    label {
-      display:block;
-      font-size:14px;
-      font-weight:bold;
-      margin:14px 0 6px;
-    }
-    input,textarea {
-      width:100%;
-      padding:12px;
-      border:1px solid #ccd3e1;
-      border-radius:9px;
-      font-size:16px;
-    }
-    button {
-      border:0;
-      border-radius:9px;
-      padding:12px 16px;
-      background:var(--blue);
-      color:white;
-      font-size:15px;
-      font-weight:bold;
-      width:100%;
-      margin-top:14px;
-    }
-    button.secondary { background:#e9edfa; color:var(--navy); }
-    button:disabled { opacity:.6; }
-    #message {
-      padding:12px;
-      border-radius:9px;
-      background:#eef2ff;
-      color:#243b83;
-      font-size:14px;
-      line-height:1.5;
-      display:none;
-      margin-top:14px;
-      overflow-wrap:anywhere;
-    }
-    #account,#resetPanel { display:none; }
-    .small { font-size:12px; color:var(--muted); line-height:1.5; }
-    footer { text-align:center; color:var(--muted); font-size:12px; padding:18px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Awaaz Network</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f1f3f6;font-family:Arial,sans-serif;color:#202124}
+header{background:#172554;color:white;padding:17px;text-align:center}
+header h1{margin:0;font-size:25px}
+header p{margin:6px 0 0;font-size:13px}
+main{max-width:650px;margin:20px auto;padding:12px}
+.card{background:white;padding:18px;margin-bottom:15px;border-radius:12px;box-shadow:0 2px 8px #00000012}
+input,textarea{width:100%;padding:12px;margin:7px 0;border:1px solid #ccc;border-radius:7px;font-size:16px}
+textarea{min-height:100px;resize:vertical}
+button{background:#1d4ed8;color:white;border:0;padding:12px 17px;border-radius:7px;font-size:15px;margin:5px 3px;cursor:pointer}
+button.secondary{background:#475569}
+button:disabled{opacity:.5}
+.hidden{display:none}
+.muted{color:#64748b;font-size:13px}
+.post{border-bottom:1px solid #eee;padding:12px 0}
+.post:last-child{border:0}
+.status{font-size:12px;color:#a16207}
+#message{padding:10px;color:#166534}
+</style>
 </head>
 <body>
 
 <header>
-  <h1>Awaaz Network</h1>
-  <p>Aapki awaaz, aapka adhikar.</p>
+<h1>📢 Awaaz Network</h1>
+<p>Aapki awaaz, aapka adhikar.</p>
 </header>
 
 <main>
-  <section class="card" id="auth">
-    <h2>Welcome to Awaaz Network</h2>
-    <p class="hint">Naya account banayein ya apne account mein login karein.</p>
+<div id="message"></div>
 
-    <label for="email">Email address</label>
-    <input id="email" type="email" autocomplete="email" placeholder="Aapka email">
+<section id="authSection" class="card">
+<h2>Welcome to Awaaz Network</h2>
+<input id="email" type="email" placeholder="Email address">
+<input id="password" type="password" placeholder="Password (minimum 6 characters)">
+<input id="signupName" placeholder="Your display name (for signup)">
+<button id="signupBtn">Create Account</button>
+<button id="loginBtn" class="secondary">Login</button>
+<button id="forgotBtn" class="secondary">Forgot Password</button>
+<p class="muted">Signup ke baad email confirmation ki zarurat ho sakti hai.</p>
+</section>
 
-    <label for="password">Password</label>
-    <input id="password" type="password" autocomplete="current-password" placeholder="Kam se kam 6 characters">
+<section id="profileSection" class="card hidden">
+<h2>Your Profile</h2>
+<input id="displayName" placeholder="Display name">
+<textarea id="bio" placeholder="Write something about yourself"></textarea>
+<button id="saveProfileBtn">Save Profile</button>
+</section>
 
-    <label for="username">Username (sirf signup ke liye)</label>
-    <input id="username" type="text" autocomplete="username" placeholder="jaise awaaz_user">
+<section id="homeSection" class="hidden">
+<div class="card">
+<h2 id="welcome">Home Feed</h2>
+<p class="muted">Apni baat duniya tak pahunchaiye.</p>
+<textarea id="postText" maxlength="2000" placeholder="What is on your mind?"></textarea>
+<p class="muted">Maximum 2000 characters. Personal phone number, address ya school details post na karein.</p>
+<button id="postBtn">Submit Post</button>
+</div>
 
-    <button id="signup">Create account</button>
-    <button class="secondary" id="login">Login</button>
-    <button class="secondary" id="forgot">Forgot Password?</button>
+<div class="card">
+<h2>🌍 Public Feed</h2>
+<div id="feed">Loading posts...</div>
+</div>
 
-    <p class="small">Apna password kisi ke saath share na karein.</p>
-  </section>
+<div class="card">
+<h2>My Pending Posts</h2>
+<div id="myPending">Loading...</div>
+</div>
 
-  <section class="card" id="resetPanel">
-    <h2>Reset Password</h2>
-    <p class="hint">Apna naya password banayein.</p>
-
-    <label for="newPassword">New Password</label>
-    <input id="newPassword" type="password" minlength="6" autocomplete="new-password" placeholder="Naya password">
-
-    <button id="updatePassword">Update Password</button>
-  </section>
-
-  <section class="card" id="account">
-    <h2>Your profile</h2>
-    <p class="hint" id="signedIn"></p>
-
-    <label for="displayName">Display name</label>
-    <input id="displayName" type="text" placeholder="Aapka naam">
-
-    <label for="bio">Bio</label>
-    <textarea id="bio" rows="3" placeholder="Apne baare mein kuch likhein"></textarea>
-
-    <button id="saveProfile">Save profile</button>
-    <button class="secondary" id="logout">Logout</button>
-
-    <p class="small">Ye abhi basic account/profile test hai. Public posts aur video upload abhi enable nahi hain.</p>
-  </section>
-
-  <div id="message" role="status"></div>
+<div class="card">
+<button id="logoutBtn" class="secondary">Logout</button>
+</div>
+</section>
 </main>
 
-<footer>© Awaaz Network · Safe and respectful community</footer>
-
 <script>
-  const SUPABASE_URL = "https://sqcsvabswnbqrapcbckb.supabase.co";
-  const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_dnoZLBNMFChOAPwNA9n4dA_G4xYwPMx";
+const SUPABASE_URL = "https://sqcsvabswnbqrapcbckb.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_dnoZLBNMFChOAPwNA9n4dA_G4xYwPMx";
 
-  const db = window.supabase.createClient(
-    SUPABASE_URL,
-    SUPABASE_PUBLISHABLE_KEY
-  );
+const db = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY
+);
 
-  const authPanel = document.getElementById("auth");
-  const accountPanel = document.getElementById("account");
-  const resetPanel = document.getElementById("resetPanel");
-  const message = document.getElementById("message");
+let currentUser = null;
 
-  let recoveryMode = window.location.hash.includes("type=recovery");
+const $ = id => document.getElementById(id);
 
-  function showMessage(text) {
-    message.textContent = text;
-    message.style.display = "block";
+function message(text, error=false) {
+  $("message").textContent = text;
+  $("message").style.color = error ? "#b91c1c" : "#166534";
+}
+
+function show(section) {
+  ["authSection","profileSection","homeSection"].forEach(id => {
+    $(id).classList.add("hidden");
+  });
+  $(section).classList.remove("hidden");
+}
+
+async function loadProfile() {
+  const {data, error} = await db
+    .from("profiles")
+    .select("*")
+    .eq("id", currentUser.id)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  if (!data) {
+    const base = (currentUser.user_metadata?.username ||
+      currentUser.email.split("@")[0] || "user")
+      .toLowerCase().replace(/[^a-z0-9_]/g,"")
+      .slice(0,20);
+
+    const username = base + "_" + currentUser.id.slice(0,6);
+
+    const {error: insertError} = await db.from("profiles").insert({
+      id: currentUser.id,
+      username,
+      display_name: currentUser.user_metadata?.display_name || "",
+      bio: ""
+    });
+
+    if (insertError) throw insertError;
+
+    $("displayName").value =
+      currentUser.user_metadata?.display_name || "";
+    $("bio").value = "";
+    show("profileSection");
+    return;
   }
 
-  function showAuth() {
-    authPanel.style.display = "block";
-    accountPanel.style.display = "none";
-    resetPanel.style.display = "none";
+  $("displayName").value = data.display_name || "";
+  $("bio").value = data.bio || "";
+
+  if (!data.display_name) {
+    show("profileSection");
+  } else {
+    show("homeSection");
+    await loadFeed();
+  }
+}
+
+async function saveProfile() {
+  const name = $("displayName").value.trim();
+  const bio = $("bio").value.trim();
+
+  if (!name) {
+    message("Please enter your display name.", true);
+    return;
   }
 
-  function showRecovery() {
-    recoveryMode = true;
-    authPanel.style.display = "none";
-    accountPanel.style.display = "none";
-    resetPanel.style.display = "block";
-    showMessage("Naya password banayein.");
-  }
+  $("saveProfileBtn").disabled = true;
 
-  async function loadProfile(user) {
-    if (recoveryMode) return;
-
-    authPanel.style.display = "none";
-    resetPanel.style.display = "none";
-    accountPanel.style.display = "block";
-
-    document.getElementById("signedIn").textContent =
-      "Logged in: " + user.email;
-
-    const { data, error } = await db
+  try {
+    const {data: existing, error: findError} = await db
       .from("profiles")
-      .select("username,display_name,bio")
-      .eq("id", user.id)
+      .select("username")
+      .eq("id", currentUser.id)
       .maybeSingle();
 
-    if (error) {
-      showMessage("Profile load error: " + error.message);
-      return;
-    }
+    if (findError) throw findError;
 
-    if (data) {
-      document.getElementById("displayName").value =
-        data.display_name || "";
-      document.getElementById("bio").value = data.bio || "";
-      return;
-    }
+    const username = existing?.username ||
+      ("user_" + currentUser.id.slice(0,12));
 
-    let username =
-      user.user_metadata?.username ||
-      (user.email || "awaaz_user").split("@")[0];
+    const {error} = await db.from("profiles").upsert({
+      id: currentUser.id,
+      username,
+      display_name: name,
+      bio
+    });
 
-    username = username.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0,24);
+    if (error) throw error;
 
-    if (username.length < 3) username = "user_" + username;
+    message("Profile save ho gayi!");
+    $("welcome").textContent = "Welcome, " + name;
+    show("homeSection");
+    await loadFeed();
+  } catch(e) {
+    message(e.message, true);
+  } finally {
+    $("saveProfileBtn").disabled = false;
+  }
+}
 
-    const { error: insertError } = await db
-      .from("profiles")
-      .insert({
-        id:user.id,
-        username:username,
-        display_name:username
-      });
+async function createPost() {
+  const content = $("postText").value.trim();
 
-    if (insertError) {
-      showMessage("Profile create error: " + insertError.message);
-      return;
-    }
-
-    document.getElementById("displayName").value = username;
-    document.getElementById("bio").value = "";
-    showMessage("Aapki profile ban gayi!");
+  if (!content) {
+    message("Please write something first.", true);
+    return;
   }
 
-  document.getElementById("signup").addEventListener("click", async () => {
-    const email = document.getElementById("email").value.trim();
-    const password = document.getElementById("password").value;
-    const username = document.getElementById("username").value.trim().toLowerCase();
+  if (content.length > 2000) {
+    message("Post is too long.", true);
+    return;
+  }
 
-    if (!email || password.length < 6 ||
-        !/^[a-z0-9_]{3,24}$/.test(username)) {
-      showMessage("Email bharein, password kam se kam 6 characters ka rakhein aur username 3–24 letters/numbers/underscore ka ho.");
-      return;
-    }
+  $("postBtn").disabled = true;
 
-    const { data, error } = await db.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { username },
-        emailRedirectTo: window.location.origin + window.location.pathname
-      }
+  try {
+    const {error} = await db.from("posts").insert({
+      user_id: currentUser.id,
+      content,
+      status: "pending",
+      is_published: false
     });
 
-    if (error) {
-      showMessage("Signup error: " + error.message);
-      return;
-    }
+    if (error) throw error;
 
-    if (data.session && data.user) {
-      await loadProfile(data.user);
-      showMessage("Account ban gaya!");
+    $("postText").value = "";
+    message("Your post has been submitted for review!");
+    await loadFeed();
+  } catch(e) {
+    message(e.message, true);
+  } finally {
+    $("postBtn").disabled = false;
+  }
+}
+
+async function loadFeed() {
+  $("feed").textContent = "Loading posts...";
+  $("myPending").textContent = "Loading...";
+
+  try {
+    const {data: posts, error} = await db
+      .from("posts")
+      .select("id,user_id,content,status,created_at")
+      .eq("status", "approved")
+      .order("created_at", {ascending:false})
+      .limit(50);
+
+    if (error) throw error;
+
+    if (!posts || posts.length === 0) {
+      $("feed").textContent = "Abhi koi approved post nahi hai.";
     } else {
-      showMessage("Signup request ho gayi. Email confirmation link par click karein, phir Login karein.");
+      const userIds = [...new Set(posts.map(p => p.user_id))];
+      const {data: profiles, error: profileError} = await db
+        .from("profiles")
+        .select("id,display_name")
+        .in("id", userIds);
+
+      if (profileError) throw profileError;
+
+      const names = {};
+      (profiles || []).forEach(p => names[p.id] = p.display_name);
+
+      $("feed").replaceChildren();
+
+      posts.forEach(p => {
+        const article = document.createElement("article");
+        article.className = "post";
+
+        const author = document.createElement("strong");
+        author.textContent = names[p.user_id] || "Awaaz User";
+
+        const body = document.createElement("p");
+        body.textContent = p.content;
+
+        const date = document.createElement("small");
+        date.className = "muted";
+        date.textContent = new Date(p.created_at).toLocaleString();
+
+        article.append(author, body, date);
+        $("feed").append(article);
+      });
     }
+
+    const {data: pending, error: pendingError} = await db
+      .from("posts")
+      .select("id,content,created_at")
+      .eq("user_id", currentUser.id)
+      .eq("status", "pending")
+      .order("created_at", {ascending:false});
+
+    if (pendingError) throw pendingError;
+
+    if (!pending || pending.length === 0) {
+      $("myPending").textContent = "No pending posts.";
+    } else {
+      $("myPending").replaceChildren();
+
+      pending.forEach(p => {
+        const item = document.createElement("article");
+        item.className = "post";
+
+        const status = document.createElement("p");
+        status.className = "status";
+        status.textContent = "⏳ Pending review";
+
+        const body = document.createElement("p");
+        body.textContent = p.content;
+
+        item.append(status, body);
+        $("myPending").append(item);
+      });
+    }
+
+  } catch(e) {
+    $("feed").textContent = "Feed error: " + e.message;
+    $("myPending").textContent = "Could not load posts.";
+  }
+}
+
+$("signupBtn").onclick = async () => {
+  const email = $("email").value.trim();
+  const password = $("password").value;
+  const name = $("signupName").value.trim();
+
+  if (!email || password.length < 6 || !name) {
+    message("Email, password (6+ characters) aur display name bharein.", true);
+    return;
+  }
+
+  const username = "user_" + Math.random().toString(36).slice(2,10);
+
+  const {data, error} = await db.auth.signUp({
+    email,
+    password,
+    options: {data: {username, display_name:name}}
   });
 
-  document.getElementById("login").addEventListener("click", async () => {
-    const email = document.getElementById("email").value.trim();
-    const password = document.getElementById("password").value;
-
-    const { data, error } = await db.auth.signInWithPassword({
-      email,
-      password
-    });
-
-    if (error) {
-      showMessage("Login error: " + error.message);
-      return;
+  if (error) {
+    message(error.message, true);
+  } else if (data.session) {
+    currentUser = data.user;
+    try {
+      await loadProfile();
+      message("Account created successfully!");
+    } catch(e) {
+      message(e.message, true);
     }
+  } else {
+    message("Account created. Email confirmation karke Login karein.");
+  }
+};
 
-    recoveryMode = false;
-    await loadProfile(data.user);
-    showMessage("Login successful!");
+$("loginBtn").onclick = async () => {
+  const {data, error} = await db.auth.signInWithPassword({
+    email: $("email").value.trim(),
+    password: $("password").value
   });
 
-  document.getElementById("forgot").addEventListener("click", async () => {
-    const email = document.getElementById("email").value.trim();
+  if (error) {
+    message(error.message, true);
+    return;
+  }
 
-    if (!email) {
-      showMessage("Pehle Email address bharein.");
-      return;
-    }
+  currentUser = data.user;
 
-    const { error } = await db.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin + window.location.pathname
-    });
+  try {
+    await loadProfile();
+    message("Login successful!");
+  } catch(e) {
+    message(e.message, true);
+  }
+};
 
-    if (error) {
-      showMessage("Reset email error: " + error.message);
-      return;
-    }
+$("forgotBtn").onclick = async () => {
+  const email = $("email").value.trim();
 
-    showMessage("Password reset email bhej diya gaya hai. Inbox check karein.");
+  if (!email) {
+    message("Pehle email address enter karein.", true);
+    return;
+  }
+
+  const {error} = await db.auth.resetPasswordForEmail(email, {
+    redirectTo: SUPABASE_URL.replace(
+      "sqcsvabswnbqrapcbckb.supabase.co",
+      "md6721635-svg.github.io/AAVAZ-NETWORK-"
+    ).replace("https://md6721635-svg.github.io/AAVAZ-NETWORK-","https://md6721635-svg.github.io/AAVAZ-NETWORK-/")
   });
 
-  document.getElementById("updatePassword").addEventListener("click", async () => {
-    const newPassword = document.getElementById("newPassword").value;
+  message(error ? error.message : "Password reset email bhej diya gaya.");
+};
 
-    if (newPassword.length < 6) {
-      showMessage("Password kam se kam 6 characters ka hona chahiye.");
-      return;
+$("saveProfileBtn").onclick = saveProfile;
+$("postBtn").onclick = createPost;
+
+$("logoutBtn").onclick = async () => {
+  const {error} = await db.auth.signOut();
+  if (error) {
+    message(error.message, true);
+    return;
+  }
+  currentUser = null;
+  show("authSection");
+  message("Logout successful.");
+};
+
+db.auth.onAuthStateChange(async (event, session) => {
+  if (event === "PASSWORD_RECOVERY") {
+    message("Password recovery mode. Password update ke liye reset page ka use karein.");
+    return;
+  }
+
+  if (session?.user && !currentUser) {
+    currentUser = session.user;
+    try {
+      await loadProfile();
+    } catch(e) {
+      message(e.message, true);
     }
+  }
 
-    const { error } = await db.auth.updateUser({
-      password:newPassword
-    });
+  if (!session && currentUser) {
+    currentUser = null;
+    show("authSection");
+  }
+});
 
-    if (error) {
-      showMessage("Password update error: " + error.message);
-      return;
+(async () => {
+  const {data} = await db.auth.getSession();
+  if (data.session) {
+    currentUser = data.session.user;
+    try {
+      await loadProfile();
+    } catch(e) {
+      message(e.message, true);
     }
-
-    recoveryMode = false;
-    window.history.replaceState({}, document.title, window.location.pathname);
-
-    await db.auth.signOut();
-    document.getElementById("password").value = "";
-    document.getElementById("newPassword").value = "";
-    showAuth();
-    showMessage("Password update ho gaya. Ab naye password se Login karein.");
-  });
-
-  document.getElementById("saveProfile").addEventListener("click", async () => {
-    const { data: { user }, error: userError } = await db.auth.getUser();
-
-    if (userError || !user) {
-      showMessage("Pehle login karein.");
-      return;
-    }
-
-    const display_name =
-      document.getElementById("displayName").value.trim();
-    const bio = document.getElementById("bio").value.trim();
-
-    const { error } = await db
-      .from("profiles")
-      .update({ display_name, bio })
-      .eq("id", user.id);
-
-    if (error) {
-      showMessage("Save error: " + error.message);
-      return;
-    }
-
-    showMessage("Profile save ho gayi!");
-  });
-
-  document.getElementById("logout").addEventListener("click", async () => {
-    await db.auth.signOut();
-    recoveryMode = false;
-    showAuth();
-    showMessage("Logout ho gaya.");
-  });
-
-  db.auth.onAuthStateChange((event, session) => {
-    if (event === "PASSWORD_RECOVERY") {
-      showRecovery();
-    } else if (event === "SIGNED_OUT") {
-      recoveryMode = false;
-      showAuth();
-    }
-  });
-
-  db.auth.getSession().then(({ data, error }) => {
-    if (error) {
-      showMessage("Session error: " + error.message);
-      return;
-    }
-
-    if (recoveryMode && data.session) {
-      showRecovery();
-    } else if (data.session) {
-      loadProfile(data.session.user);
-    }
-  });
+  } else {
+    show("authSection");
+  }
+})();
 </script>
-
 </body>
 </html>
