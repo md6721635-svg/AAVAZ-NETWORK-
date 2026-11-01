@@ -8,8 +8,16 @@
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#f1f3f6;font-family:Arial,sans-serif;color:#202124}
-header{background:#172554;color:white;padding:17px;text-align:center}
+header{background:#172554;color:white;padding:17px;text-align:center;position:relative}
 header h1{margin:0;font-size:25px}
+.profile-trigger{position:absolute;left:14px;top:13px;width:42px;height:42px;border-radius:50%;padding:0;margin:0;background:#fff;color:#172554;font-size:19px;font-weight:bold;border:2px solid #bfdbfe;overflow:hidden}
+.profile-trigger img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.avatar-large{width:86px;height:86px;border-radius:50%;background:#dbeafe;color:#1e3a8a;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:bold;margin:0 auto 12px;overflow:hidden}
+.avatar-large img{width:100%;height:100%;object-fit:cover}
+.profile-meta{text-align:center}
+.profile-post{border-top:1px solid #e2e8f0;padding:12px 0}
+.profile-post img{width:100%;max-height:260px;object-fit:contain;border-radius:8px}
+.profile-top-actions{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 header p{margin:6px 0 0;font-size:13px}
 main{max-width:650px;margin:20px auto;padding:12px}
 .card{background:white;padding:18px;margin-bottom:15px;border-radius:12px;box-shadow:0 2px 8px #00000012}
@@ -38,6 +46,7 @@ button:disabled{opacity:.5}
 </head>
 <body>
 <header>
+<button id="profileIcon" class="profile-trigger hidden" aria-label="Open profile">A</button>
 <h1>📢 Awaaz Network</h1>
 <p>Aapki awaaz, aapka adhikar.</p>
 </header>
@@ -63,6 +72,33 @@ button:disabled{opacity:.5}
 <input id="displayName" placeholder="Display name">
 <textarea id="bio" placeholder="Write something about yourself"></textarea>
 <button id="saveProfileBtn">Save Profile</button>
+</section>
+<section id="profilePage" class="card hidden">
+  <div class="profile-top-actions">
+    <button id="profileBackBtn" class="secondary">← Home Feed</button>
+    <button id="profileEditBtn">Edit Profile</button>
+  </div>
+  <div class="profile-meta">
+    <div id="profileAvatarLarge" class="avatar-large">A</div>
+    <h2 id="profilePageName">Your Name</h2>
+    <p class="muted">Profile photo badalne ke liye neeche photo select karein.</p>
+    <input id="avatarFile" type="file" accept="image/jpeg,image/png,image/webp">
+    <button id="avatarUploadBtn">Upload Profile Photo</button>
+    <p id="profilePageUsername" class="muted">@username</p>
+    <p id="profilePageBio"></p>
+    <p id="profilePageEmail" class="muted"></p>
+    <p id="profilePageJoined" class="muted"></p>
+  </div>
+  <div id="profileEditForm" class="hidden">
+    <h3>Edit Profile</h3>
+    <input id="profileEditName" placeholder="Display name">
+    <textarea id="profileEditBio" placeholder="Write something about yourself"></textarea>
+    <button id="profileUpdateBtn">Save Changes</button>
+    <button id="profileCancelEditBtn" class="secondary">Cancel</button>
+  </div>
+  <hr>
+  <h3>My Posts</h3>
+  <div id="myPosts">Loading your posts...</div>
 </section>
 <section id="homeSection" class="hidden">
 <div class="card">
@@ -96,17 +132,123 @@ const $ = id => document.getElementById(id);
 let currentUser = null;
 let isNetworkAdmin = false;
 let previewUrl = null;
+let currentProfile = null;
 
 function message(text,error=false){
   $("message").textContent=text;
   $("message").style.color=error?"#b91c1c":"#166534";
 }
 function show(section){
-  ["authSection","profileSection","homeSection","resetSection"].forEach(id=>$(id).classList.add("hidden"));
+  ["authSection","profileSection","profilePage","homeSection","resetSection"].forEach(id=>$(id).classList.add("hidden"));
   $(section).classList.remove("hidden");
 }
 function safeFileName(name){
   return name.toLowerCase().replace(/[^a-z0-9.]/g,"-").slice(-80);
+}
+
+function updateProfileIcon(name, avatarUrl=null){
+  const letter=(name||currentUser?.email||"A").trim().charAt(0).toUpperCase()||"A";
+  const button=$("profileIcon");
+  button.replaceChildren();
+  if(avatarUrl){const img=document.createElement("img");img.src=avatarUrl;img.alt="Profile photo";button.append(img);}
+  else button.textContent=letter;
+  button.classList.remove("hidden");
+}
+
+function setLargeAvatar(name, avatarUrl=null){
+  const box=$("profileAvatarLarge");box.replaceChildren();
+  if(avatarUrl){const img=document.createElement("img");img.src=avatarUrl;img.alt="Profile photo";box.append(img);}
+  else box.textContent=(name||"A").trim().charAt(0).toUpperCase()||"A";
+}
+
+async function uploadProfilePhoto(){
+  const file=$("avatarFile").files[0];
+  if(!file){message("Pehle profile photo select karein.",true);return;}
+  if(!["image/jpeg","image/png","image/webp"].includes(file.type)){message("Sirf JPG, PNG ya WebP photo allowed hai.",true);return;}
+  if(file.size>5*1024*1024){message("Photo 5 MB se chhoti honi chahiye.",true);return;}
+  const button=$("avatarUploadBtn");button.disabled=true;message("Profile photo upload ho rahi hai...");
+  try{
+    const path=currentUser.id+"/avatar-"+Date.now()+"-"+safeFileName(file.name);
+    const {error:uploadError}=await db.storage.from("profile-photos").upload(path,file,{contentType:file.type,upsert:false});
+    if(uploadError)throw uploadError;
+    const {data:urlData}=db.storage.from("profile-photos").getPublicUrl(path);
+    const {error:updateError}=await db.from("profiles").update({avatar_url:urlData.publicUrl}).eq("id",currentUser.id);
+    if(updateError)throw updateError;
+    if(currentProfile)currentProfile.avatar_url=urlData.publicUrl;
+    setLargeAvatar(currentProfile?.display_name||currentUser.email,urlData.publicUrl);
+    updateProfileIcon(currentProfile?.display_name||currentUser.email,urlData.publicUrl);
+    $("avatarFile").value="";message("Profile photo successfully update ho gayi!");
+    await loadFeed();
+  }catch(e){message("Profile photo error: "+e.message,true);}
+  finally{button.disabled=false;}
+}
+
+async function openProfilePage(){
+  try{
+    const {data,error}=await db.from("profiles").select("*").eq("id",currentUser.id).maybeSingle();
+    if(error) throw error;
+    const profile=data||{};
+    currentProfile=profile;
+    const displayName=profile.display_name||currentUser.email.split("@")[0];
+    $("profilePageName").textContent=displayName;
+    $("profilePageUsername").textContent="@"+(profile.username||"user");
+    $("profilePageBio").textContent=profile.bio||"No bio added yet.";
+    $("profilePageEmail").textContent=currentUser.email||"";
+    $("profilePageJoined").textContent="Joined: "+new Date(currentUser.created_at).toLocaleDateString();
+    setLargeAvatar(displayName,profile.avatar_url||null);
+    $("profileEditName").value=profile.display_name||"";
+    $("profileEditBio").value=profile.bio||"";
+    $("profileEditForm").classList.add("hidden");
+    show("profilePage");
+    await loadMyPosts();
+  }catch(e){message("Profile error: "+e.message,true);}
+}
+
+async function loadMyPosts(){
+  $("myPosts").textContent="Loading your posts...";
+  try{
+    const {data:posts,error}=await db.from("posts")
+      .select("id,content,image_url,status,created_at")
+      .eq("user_id",currentUser.id)
+      .order("created_at",{ascending:false}).limit(50);
+    if(error) throw error;
+    $("myPosts").replaceChildren();
+    if(!posts?.length){$("myPosts").textContent="Abhi aapki koi post nahi hai.";return;}
+    for(const post of posts){
+      const item=document.createElement("div");item.className="profile-post";
+      const content=document.createElement("p");content.textContent=post.content||"";
+      const status=document.createElement("small");status.className="muted";
+      status.textContent=post.status==="removed"?"Removed by admin":post.status==="approved"?"Published":post.status;
+      item.append(content,status);
+      if(post.image_url){
+        const url=await signedPhoto(post.image_url);
+        if(url){const img=document.createElement("img");img.src=url;img.alt="Your post photo";item.append(img);}
+      }
+      const date=document.createElement("p");date.className="muted";
+      date.textContent=new Date(post.created_at).toLocaleString();item.append(date);
+      $("myPosts").append(item);
+    }
+  }catch(e){$("myPosts").textContent="Your posts error: "+e.message;}
+}
+
+async function updateProfileDetails(){
+  const name=$("profileEditName").value.trim();
+  const bio=$("profileEditBio").value.trim();
+  if(!name){message("Display name zaroori hai.",true);return;}
+  $("profileUpdateBtn").disabled=true;
+  try{
+    const {data:existing,error:findError}=await db.from("profiles")
+      .select("username").eq("id",currentUser.id).maybeSingle();
+    if(findError) throw findError;
+    const username=existing?.username||("user_"+currentUser.id.slice(0,12));
+    const {error}=await db.from("profiles").upsert({id:currentUser.id,username,display_name:name,bio});
+    if(error) throw error;
+    $("profileEditForm").classList.add("hidden");
+    updateProfileIcon(name,currentProfile?.avatar_url||null);
+    message("Profile update ho gayi!");
+    await openProfilePage();
+  }catch(e){message("Profile update error: "+e.message,true);}
+  finally{$("profileUpdateBtn").disabled=false;}
 }
 
 async function loadProfile(){
@@ -128,6 +270,8 @@ async function loadProfile(){
   }
   $("displayName").value=data.display_name || "";
   $("bio").value=data.bio || "";
+  currentProfile=data;
+  updateProfileIcon(data.display_name || currentUser.email,data.avatar_url||null);
   if(!data.display_name) show("profileSection");
   else{
     $("welcome").textContent="Welcome, "+data.display_name;
@@ -171,6 +315,7 @@ async function saveProfile(){
     });
     if(error) throw error;
     $("welcome").textContent="Welcome, "+name;
+    updateProfileIcon(name);
     show("homeSection");
     await checkAdmin();
     await loadFeed();
@@ -329,20 +474,23 @@ async function loadFeed(){
       const commentUserIds=[...new Set((comments||[]).map(c=>c.user_id))];
       const allUserIds=[...new Set([...ids,...commentUserIds])];
       const {data:commentProfiles,error:commentProfileError}=await db.from("profiles")
-        .select("id,display_name").in("id",allUserIds);
+        .select("id,display_name,avatar_url").in("id",allUserIds);
       if(commentProfileError)throw commentProfileError;
-      const names={};
-      (commentProfiles||[]).forEach(p=>names[p.id]=p.display_name||"Awaaz User");
+      const names={}, avatars={};
+      (commentProfiles||[]).forEach(p=>{names[p.id]=p.display_name||"Awaaz User";avatars[p.id]=p.avatar_url||null;});
       $("feed").replaceChildren();
 
       for(const p of posts){
         const article=document.createElement("article");
         article.className="post";
-        const author=document.createElement("strong");
-        author.textContent=names[p.user_id]||"Awaaz User";
-        const body=document.createElement("p");
-        body.textContent=p.content||"";
-        article.append(author,body);
+        const authorRow=document.createElement("div");authorRow.style.cssText="display:flex;align-items:center;gap:9px;margin-bottom:8px";
+        const avatar=document.createElement("div");avatar.style.cssText="width:38px;height:38px;border-radius:50%;overflow:hidden;background:#dbeafe;color:#1e3a8a;display:flex;align-items:center;justify-content:center;font-weight:bold;flex-shrink:0";
+        if(avatars[p.user_id]){const avatarImg=document.createElement("img");avatarImg.src=avatars[p.user_id];avatarImg.alt="";avatarImg.style.cssText="width:100%;height:100%;object-fit:cover";avatar.append(avatarImg);}
+        else avatar.textContent=(names[p.user_id]||"A").charAt(0).toUpperCase();
+        const author=document.createElement("strong");author.textContent=names[p.user_id]||"Awaaz User";
+        authorRow.append(avatar,author);
+        const body=document.createElement("p");body.textContent=p.content||"";
+        article.append(authorRow,body);
         if(p.image_url){
           const url=await signedPhoto(p.image_url);
           if(url){
@@ -441,12 +589,18 @@ $("updatePasswordBtn").onclick=async()=>{
 };
 
 $("saveProfileBtn").onclick=saveProfile;
+$("profileIcon").onclick=openProfilePage;
+$("avatarUploadBtn").onclick=uploadProfilePhoto;
+$("profileBackBtn").onclick=()=>show("homeSection");
+$("profileEditBtn").onclick=()=>$("profileEditForm").classList.toggle("hidden");
+$("profileCancelEditBtn").onclick=()=>$("profileEditForm").classList.add("hidden");
+$("profileUpdateBtn").onclick=updateProfileDetails;
 $("postBtn").onclick=createTextPost;
 $("photoPostBtn").onclick=createPhotoPost;
 $("logoutBtn").onclick=async()=>{
   const {error}=await db.auth.signOut();
   if(error){message(error.message,true);return;}
-  currentUser=null;isNetworkAdmin=false;show("authSection");message("Logout successful.");
+  currentUser=null;isNetworkAdmin=false;$("profileIcon").classList.add("hidden");show("authSection");message("Logout successful.");
 };
 
 db.auth.onAuthStateChange((event,session)=>{
