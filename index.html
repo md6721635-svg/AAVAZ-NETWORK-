@@ -42,6 +42,10 @@ button:disabled{opacity:.5}
 .comment:last-child{border:0}
 .comment small{color:#64748b}
 .comment-input{min-height:55px}
+.bottom-nav{position:sticky;bottom:0;background:#fff;border-top:1px solid #cbd5e1;display:flex;justify-content:space-around;padding:7px 2px;z-index:5}
+.bottom-nav button{flex:1;margin:2px;padding:10px 3px;font-size:12px}
+.user-result{padding:10px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.profile-stats{display:flex;justify-content:center;gap:20px;margin:12px 0}
 </style>
 </head>
 <body>
@@ -88,6 +92,8 @@ button:disabled{opacity:.5}
     <p id="profilePageBio"></p>
     <p id="profilePageEmail" class="muted"></p>
     <p id="profilePageJoined" class="muted"></p>
+    <div class="profile-stats"><span id="followersCount">0 Followers</span><span id="followingCount">0 Following</span></div>
+    <button id="followBtn" class="hidden">Follow</button>
   </div>
   <div id="profileEditForm" class="hidden">
     <h3>Edit Profile</h3>
@@ -121,7 +127,11 @@ button:disabled{opacity:.5}
 <div id="feed">Loading posts...</div>
 </div>
 
+<div id="searchPanel" class="card hidden"><h2>🔎 Search Users</h2><input id="userSearch" placeholder="Username ya display name search karein"><button id="searchUsersBtn">Search</button><div id="searchResults"></div></div>
+<div id="savedPanel" class="card hidden"><h2>🔖 Saved Posts</h2><div id="savedPosts">Saved posts yahan dikhenge.</div></div>
+<div id="settingsPanel" class="card hidden"><h2>⚙️ Settings</h2><p class="muted">Account aur privacy settings</p><button id="settingsProfileBtn">Edit Profile</button><button id="settingsLogoutBtn" class="secondary">Logout</button><p class="muted">Apna password kisi ke saath share na karein. Awaaz Network par public posts sab dekh sakte hain.</p></div>
 <div class="card"><button id="logoutBtn" class="secondary">Logout</button></div>
+<nav id="bottomNav" class="bottom-nav"><button data-panel="home">🏠<br>Home</button><button data-panel="search">🔎<br>Search</button><button data-panel="camera">📷<br>Post</button><button data-panel="saved">🔖<br>Saved</button><button data-panel="settings">⚙️<br>Settings</button></nav>
 </section>
 </main>
 <script>
@@ -133,6 +143,7 @@ let currentUser = null;
 let isNetworkAdmin = false;
 let previewUrl = null;
 let currentProfile = null;
+let viewingUserId = null;
 
 function message(text,error=false){
   $("message").textContent=text;
@@ -188,6 +199,7 @@ async function openProfilePage(){
     const {data,error}=await db.from("profiles").select("*").eq("id",currentUser.id).maybeSingle();
     if(error) throw error;
     const profile=data||{};
+    viewingUserId=currentUser.id;
     currentProfile=profile;
     const displayName=profile.display_name||currentUser.email.split("@")[0];
     $("profilePageName").textContent=displayName;
@@ -195,6 +207,8 @@ async function openProfilePage(){
     $("profilePageBio").textContent=profile.bio||"No bio added yet.";
     $("profilePageEmail").textContent=currentUser.email||"";
     $("profilePageJoined").textContent="Joined: "+new Date(currentUser.created_at).toLocaleDateString();
+    $("profileEditBtn").classList.remove("hidden");$("avatarFile").classList.remove("hidden");$("avatarUploadBtn").classList.remove("hidden");$("profilePageEmail").classList.remove("hidden");$("followBtn").classList.add("hidden");
+    await updateFollowStats(currentUser.id);
     setLargeAvatar(displayName,profile.avatar_url||null);
     $("profileEditName").value=profile.display_name||"";
     $("profileEditBio").value=profile.bio||"";
@@ -203,6 +217,65 @@ async function openProfilePage(){
     await loadMyPosts();
   }catch(e){message("Profile error: "+e.message,true);}
 }
+
+async function updateFollowStats(userId){
+  const [{count:followers,error:e1},{count:following,error:e2}]=await Promise.all([
+    db.from("follows").select("id",{count:"exact",head:true}).eq("following_id",userId),
+    db.from("follows").select("id",{count:"exact",head:true}).eq("follower_id",userId)
+  ]);
+  if(e1||e2) throw (e1||e2);
+  $("followersCount").textContent=(followers||0)+" Followers";
+  $("followingCount").textContent=(following||0)+" Following";
+}
+async function openOtherProfile(userId){
+  if(userId===currentUser.id){await openProfilePage();return;}
+  try{
+    const {data,error}=await db.from("profiles").select("*").eq("id",userId).maybeSingle();
+    if(error)throw error;if(!data){message("User profile nahi mila.",true);return;}
+    viewingUserId=userId;currentProfile=data;
+    $("profilePageName").textContent=data.display_name||"Awaaz User";
+    $("profilePageUsername").textContent="@"+(data.username||"user");
+    $("profilePageBio").textContent=data.bio||"No bio added yet.";
+    $("profilePageEmail").textContent="";$("profilePageEmail").classList.add("hidden");
+    $("profilePageJoined").textContent="";setLargeAvatar(data.display_name,data.avatar_url||null);
+    $("profileEditBtn").classList.add("hidden");$("avatarFile").classList.add("hidden");$("avatarUploadBtn").classList.add("hidden");
+    $("profileEditForm").classList.add("hidden");$("followBtn").classList.remove("hidden");
+    await updateFollowStats(userId);
+    const {data:rel,error:relErr}=await db.from("follows").select("id").eq("follower_id",currentUser.id).eq("following_id",userId).maybeSingle();
+    if(relErr)throw relErr;$("followBtn").textContent=rel?"Unfollow":"Follow";
+    $("followBtn").onclick=()=>toggleFollow(userId,!!rel);
+    show("profilePage");await loadUserPosts(userId);
+  }catch(e){message("Profile error: "+e.message,true);}
+}
+async function toggleFollow(userId,isFollowing){
+  try{
+    const result=isFollowing?await db.from("follows").delete().eq("follower_id",currentUser.id).eq("following_id",userId):await db.from("follows").insert({follower_id:currentUser.id,following_id:userId});
+    if(result.error)throw result.error;await openOtherProfile(userId);message(isFollowing?"Unfollow kar diya.":"Follow kar liya.");
+  }catch(e){message("Follow error: "+e.message,true);}
+}
+async function loadUserPosts(userId){
+  $("myPosts").textContent="Loading posts...";
+  const {data,error}=await db.from("posts").select("id,content,image_url,created_at").eq("user_id",userId).eq("status","approved").eq("is_published",true).order("created_at",{ascending:false}).limit(30);
+  if(error){$("myPosts").textContent=error.message;return;}
+  $("myPosts").replaceChildren();if(!data?.length){$("myPosts").textContent="Abhi koi public post nahi hai.";return;}
+  for(const p of data){const el=document.createElement("div");el.className="profile-post";const t=document.createElement("p");t.textContent=p.content||"";el.append(t);if(p.image_url){const u=await signedPhoto(p.image_url);if(u){const im=document.createElement("img");im.src=u;el.append(im);}}$("myPosts").append(el);}
+}
+async function searchUsers(){
+  const q=$("userSearch").value.trim();if(q.length<2){message("Kam se kam 2 letters likhein.",true);return;}
+  const {data,error}=await db.from("profiles").select("id,username,display_name,avatar_url").or(`username.ilike.%${q}%,display_name.ilike.%${q}%`).neq("id",currentUser.id).limit(20);
+  if(error){message("Search error: "+error.message,true);return;}
+  $("searchResults").replaceChildren();if(!data?.length){$("searchResults").textContent="Koi user nahi mila.";return;}
+  data.forEach(u=>{const row=document.createElement("div");row.className="user-result";const label=document.createElement("span");label.textContent=(u.display_name||"Awaaz User")+"  @"+(u.username||"user");const b=document.createElement("button");b.textContent="View Profile";b.onclick=()=>openOtherProfile(u.id);row.append(label,b);$("searchResults").append(row);});
+}
+function showPanel(name){["searchPanel","savedPanel","settingsPanel"].forEach(id=>$(id).classList.add("hidden"));if(name==="home"){show("homeSection");return;}show("homeSection");$(name+"Panel").classList.remove("hidden");if(name==="saved")loadSavedPosts();}
+async function loadSavedPosts(){
+  $("savedPosts").textContent="Loading...";const {data,error}=await db.from("saved_posts").select("post_id,posts(id,content,created_at)").eq("user_id",currentUser.id).order("created_at",{ascending:false});if(error){$("savedPosts").textContent="Saved posts ke liye database setup zaroori hai.";return;}$("savedPosts").replaceChildren();if(!data?.length){$("savedPosts").textContent="Abhi koi saved post nahi hai.";return;}data.forEach(x=>{const d=document.createElement("p");d.textContent=x.posts?.content||("Post #"+x.post_id);$("savedPosts").append(d);});
+}
+async function savePost(postId,button){
+  try{const {error}=await db.from("saved_posts").upsert({user_id:currentUser.id,post_id:postId},{onConflict:"user_id,post_id",ignoreDuplicates:true});if(error)throw error;button.textContent="✓ Saved";message("Post save ho gayi.");}
+  catch(e){message("Save error: "+e.message,true);}
+}
+async function sharePost(postId){const url=location.origin+location.pathname+"?post="+postId;try{if(navigator.share)await navigator.share({title:"Awaaz Network post",url});else{await navigator.clipboard.writeText(url);message("Post link copy ho gaya.");}}catch(e){if(e.name!=="AbortError")message("Share nahi ho saka.",true);}}
 
 async function loadMyPosts(){
   $("myPosts").textContent="Loading your posts...";
@@ -474,10 +547,10 @@ async function loadFeed(){
       const commentUserIds=[...new Set((comments||[]).map(c=>c.user_id))];
       const allUserIds=[...new Set([...ids,...commentUserIds])];
       const {data:commentProfiles,error:commentProfileError}=await db.from("profiles")
-        .select("id,display_name,avatar_url").in("id",allUserIds);
+        .select("id,display_name,username,avatar_url").in("id",allUserIds);
       if(commentProfileError)throw commentProfileError;
-      const names={}, avatars={};
-      (commentProfiles||[]).forEach(p=>{names[p.id]=p.display_name||"Awaaz User";avatars[p.id]=p.avatar_url||null;});
+      const names={}, avatars={}, usernames={};
+      (commentProfiles||[]).forEach(p=>{names[p.id]=p.display_name||"Awaaz User";avatars[p.id]=p.avatar_url||null;usernames[p.id]=p.username||"user";});
       $("feed").replaceChildren();
 
       for(const p of posts){
@@ -488,7 +561,7 @@ async function loadFeed(){
         if(avatars[p.user_id]){const avatarImg=document.createElement("img");avatarImg.src=avatars[p.user_id];avatarImg.alt="";avatarImg.style.cssText="width:100%;height:100%;object-fit:cover";avatar.append(avatarImg);}
         else avatar.textContent=(names[p.user_id]||"A").charAt(0).toUpperCase();
         const author=document.createElement("strong");author.textContent=names[p.user_id]||"Awaaz User";
-        authorRow.append(avatar,author);
+        const handle=document.createElement("small");handle.className="muted";handle.textContent="@"+(usernames[p.user_id]||"user");const authorInfo=document.createElement("div");authorInfo.append(author,handle);authorRow.append(avatar,authorInfo);authorRow.style.cursor="pointer";authorRow.onclick=()=>openOtherProfile(p.user_id);
         const body=document.createElement("p");body.textContent=p.content||"";
         article.append(authorRow,body);
         if(p.image_url){
@@ -508,6 +581,8 @@ async function loadFeed(){
         likeButton.className="like-btn"+(liked?" liked":"");
         likeButton.textContent=(liked?"♥ Liked":"♡ Like")+" ("+postLikes.length+")";
         likeButton.onclick=()=>toggleLike(p.id,likeButton);actions.append(likeButton);
+        const saveButton=document.createElement("button");saveButton.className="secondary";saveButton.textContent="🔖 Save";saveButton.onclick=()=>savePost(p.id,saveButton);actions.append(saveButton);
+        const shareButton=document.createElement("button");shareButton.className="secondary";shareButton.textContent="↗ Send";shareButton.onclick=()=>sharePost(p.id);actions.append(shareButton);
         const date=document.createElement("small");date.className="muted";
         date.textContent=new Date(p.created_at).toLocaleString();actions.append(date);
         if(isNetworkAdmin){
@@ -602,6 +677,13 @@ $("logoutBtn").onclick=async()=>{
   if(error){message(error.message,true);return;}
   currentUser=null;isNetworkAdmin=false;$("profileIcon").classList.add("hidden");show("authSection");message("Logout successful.");
 };
+
+$("searchUsersBtn").onclick=searchUsers;
+$("userSearch").addEventListener("keydown",e=>{if(e.key==="Enter")searchUsers();});
+$("followBtn").onclick=()=>{};
+document.querySelectorAll(".bottom-nav button").forEach(b=>b.onclick=()=>{const p=b.dataset.panel;if(p==="camera"){show("homeSection");$("photoFile").click();}else showPanel(p);});
+$("settingsProfileBtn").onclick=()=>openProfilePage();
+$("settingsLogoutBtn").onclick=()=>$("logoutBtn").click();
 
 db.auth.onAuthStateChange((event,session)=>{
   if(event==="PASSWORD_RECOVERY"){show("resetSection");message("Apna naya password set karein.");}
